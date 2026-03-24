@@ -3,6 +3,23 @@ options:
   bundleIdPrefix: net.fenyo.apple
   deploymentTarget:
     iOS: "16.0"
+  developmentLanguage: en
+  knownRegions:
+    - en
+    - fr
+    - es
+    - pt
+    - de
+    - it
+    - ja
+    - zh-Hans
+    - zh-Hant
+    - ko
+    - ar
+    - ru
+    - hi
+    - nl
+    - pl
 
 targets:
   YoutubeNoPub:

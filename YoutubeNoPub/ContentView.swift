@@ -33,7 +33,7 @@ struct ContentView: View {
                                     .foregroundColor(.primary)
                                     .lineLimit(3)
                                 if let link = URL(string: url) {
-                                    Button("Ouvrir dans Safari") {
+                                    Button("Open in Safari") {
                                         safariURL = link
                                     }
                                     .font(.caption2)
