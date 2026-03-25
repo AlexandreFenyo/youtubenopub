@@ -96,7 +96,7 @@ class ShareViewController: UIViewController {
         imageView.translatesAutoresizingMaskIntoConstraints = false
 
         let label = UILabel()
-        label.text = "URL sauvegardée"
+        label.text = NSLocalizedString("URL saved", comment: "")
         label.font = .systemFont(ofSize: 15, weight: .medium)
         label.textColor = .label
         label.translatesAutoresizingMaskIntoConstraints = false

@@ -1,0 +1,24 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "URL saved" : {
+      "localizations" : {
+        "ar" : { "stringUnit" : { "state" : "translated", "value" : "تم حفظ الرابط" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "URL gespeichert" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "URL guardada" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "URL sauvegardée" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "URL salvato" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "URL保存済み" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "URL 저장됨" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "URL opgeslagen" } },
+        "pl" : { "stringUnit" : { "state" : "translated", "value" : "URL zapisany" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "URL salvo" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "URL сохранён" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "URL sparad" } },
+        "tr" : { "stringUnit" : { "state" : "translated", "value" : "URL kaydedildi" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "URL已保存" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}
