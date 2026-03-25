@@ -19,7 +19,18 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(gh repo:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(git -C /Volumes/external-mac/fenyo/git3/youtubenopub pull)",
+      "Bash(git -C /Volumes/external-mac/fenyo/git3/youtubenopub fetch)",
+      "Bash(git -C /Volumes/external-mac/fenyo/git3/youtubenopub status)",
+      "Bash(git -C /Volumes/external-mac/fenyo/git3/youtubenopub log --oneline origin/main -5)",
+      "Bash(ls /Volumes/external-mac/fenyo/git3/youtubenopub/README*)",
+      "Bash(git -C /Volumes/external-mac/fenyo/git3/youtubenopub add README.md)",
+      "Bash(git -C:*)",
+      "Bash(git -C /Volumes/external-mac/fenyo/git3/youtubenopub push)",
+      "Bash(git rm:*)"
     ]
   }
 }
