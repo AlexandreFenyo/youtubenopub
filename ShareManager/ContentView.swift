@@ -5,6 +5,7 @@ struct ContentView: View {
     @State private var urls: [String] = []
     @State private var safariFullScreenURL: URL? = nil
     @State private var titles: [String: String] = [:]
+    @State private var sourceApps: [String: String] = [:]
     @AppStorage("colorSchemePreference") private var colorSchemePreference: Int = 0
 
     private var colorScheme: ColorScheme? {
@@ -48,6 +49,19 @@ struct ContentView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                     .lineLimit(2)
+                                
+                                // Afficher l'app source si disponible
+                                if let sourceApp = sourceApps[url] {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "app.badge")
+                                            .font(.caption2)
+                                        Text("From: \(sourceApp)")
+                                            .font(.caption2)
+                                    }
+                                    .foregroundColor(.blue)
+                                    .padding(.top, 2)
+                                }
+                                
                                 if let link = URL(string: url) {
                                     Button("Open in Safari") {
                                         safariFullScreenURL = link
@@ -104,6 +118,7 @@ struct ContentView: View {
     private func loadURLs() {
         let defaults = UserDefaults(suiteName: appGroup)
         urls = defaults?.stringArray(forKey: "sharedURLs") ?? []
+        sourceApps = defaults?.dictionary(forKey: "sourceApps") as? [String: String] ?? [:]
     }
 
     private func deleteURLs(at offsets: IndexSet) {
