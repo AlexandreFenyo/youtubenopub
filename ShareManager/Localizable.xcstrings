@@ -356,90 +356,90 @@
         }
       }
     },
-    "Share a URL from YouTube or any app using the Share button" : {
+    "This app stores URLs you share from other apps using the Share button" : {
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "شارك رابطاً من يوتيوب أو أي تطبيق باستخدام زر المشاركة"
+            "value" : "يحفظ هذا التطبيق الروابط التي تشاركها من تطبيقات أخرى عبر زر المشاركة"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Teile eine URL von YouTube oder einer anderen App über den Teilen-Knopf"
+            "value" : "Diese App speichert URLs, die du aus anderen Apps über den Teilen-Knopf teilst"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Comparte una URL desde YouTube o cualquier app usando el botón Compartir"
+            "value" : "Esta app almacena las URLs que compartes desde otras apps usando el botón Compartir"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Partagez une URL depuis YouTube ou n'importe quelle app via le bouton Partager"
+            "value" : "Cette app stocke les URLs que vous partagez depuis d'autres apps via le bouton Partager"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Condividi un URL da YouTube o qualsiasi app usando il tasto Condividi"
+            "value" : "Questa app archivia gli URL che condividi da altre app tramite il tasto Condividi"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "YouTubeまたは他のアプリの共有ボタンからURLを共有してください"
+            "value" : "このアプリは、他のアプリから共有ボタンで共有したURLを保存します"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "공유 버튼을 사용해 YouTube 또는 다른 앱에서 URL을 공유하세요"
+            "value" : "이 앱은 공유 버튼을 사용해 다른 앱에서 공유한 URL을 저장합니다"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deel een URL vanuit YouTube of een andere app via de deelknop"
+            "value" : "Deze app bewaart de URL's die je vanuit andere apps deelt via de deelknop"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Udostępnij adres URL z YouTube lub dowolnej aplikacji za pomocą przycisku Udostępnij"
+            "value" : "Ta aplikacja zapisuje adresy URL udostępniane z innych aplikacji za pomocą przycisku Udostępnij"
           }
         },
         "pt" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Compartilhe um URL do YouTube ou qualquer app usando o botão Compartilhar"
+            "value" : "Este app armazena os URLs que você compartilha de outros apps usando o botão Compartilhar"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Поделитесь URL из YouTube или любого приложения через кнопку «Поделиться»"
+            "value" : "Это приложение сохраняет URL, которыми вы делитесь из других приложений через кнопку «Поделиться»"
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dela en webbadress från YouTube eller en annan app via delningsknappen"
+            "value" : "Denna app sparar webbadresser som du delar från andra appar via delningsknappen"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "YouTube veya herhangi bir uygulamadan Paylaş düğmesiyle URL paylaşın"
+            "value" : "Bu uygulama, Paylaş düğmesi ile diğer uygulamalardan paylaştığınız URL'leri saklar"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "通过任意应用的分享按钮从YouTube或其他来源分享URL"
+            "value" : "此应用存储您通过分享按钮从其他应用分享的URL"
           }
         }
       }

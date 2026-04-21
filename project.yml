@@ -1,4 +1,4 @@
-name: YoutubeNoPub
+name: ShareManager
 options:
   bundleIdPrefix: net.fenyo.apple
   deploymentTarget:
@@ -22,19 +22,19 @@ options:
     - pl
 
 targets:
-  YoutubeNoPub:
+  ShareManager:
     type: application
     platform: iOS
     deploymentTarget: "16.0"
     sources:
-      - path: YoutubeNoPub
+      - path: ShareManager
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: net.fenyo.apple.youtubenopub
-        INFOPLIST_FILE: YoutubeNoPub/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: net.fenyo.apple.sharemanager
+        INFOPLIST_FILE: ShareManager/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1,2"
-        CODE_SIGN_ENTITLEMENTS: YoutubeNoPub/YoutubeNoPub.entitlements
+        CODE_SIGN_ENTITLEMENTS: ShareManager/ShareManager.entitlements
         SWIFT_VERSION: "5.9"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
@@ -49,7 +49,7 @@ targets:
       - path: ShareExtension
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: net.fenyo.apple.youtubenopub.shareextension
+        PRODUCT_BUNDLE_IDENTIFIER: net.fenyo.apple.sharemanager.shareextension
         INFOPLIST_FILE: ShareExtension/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -57,11 +57,11 @@ targets:
         SWIFT_VERSION: "5.9"
 
 schemes:
-  YoutubeNoPub:
+  ShareManager:
     build:
       targets:
-        YoutubeNoPub: all
+        ShareManager: all
         ShareExtension: all
     run:
       config: Debug
-      executable: YoutubeNoPub
+      executable: ShareManager

@@ -18,7 +18,7 @@
                BlueprintIdentifier = "9CB5F3BD848E74E08807BDAB"
                BuildableName = "ShareExtension.appex"
                BlueprintName = "ShareExtension"
-               ReferencedContainer = "container:YoutubeNoPub.xcodeproj">
+               ReferencedContainer = "container:ShareManager.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
          <BuildActionEntry
@@ -30,9 +30,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "23AE1EFDC623EC03807AAC1A"
-               BuildableName = "YoutubeNoPub.app"
-               BlueprintName = "YoutubeNoPub"
-               ReferencedContainer = "container:YoutubeNoPub.xcodeproj">
+               BuildableName = "ShareManager.app"
+               BlueprintName = "ShareManager"
+               ReferencedContainer = "container:ShareManager.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -47,9 +47,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "23AE1EFDC623EC03807AAC1A"
-            BuildableName = "YoutubeNoPub.app"
-            BlueprintName = "YoutubeNoPub"
-            ReferencedContainer = "container:YoutubeNoPub.xcodeproj">
+            BuildableName = "ShareManager.app"
+            BlueprintName = "ShareManager"
+            ReferencedContainer = "container:ShareManager.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
@@ -70,9 +70,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "23AE1EFDC623EC03807AAC1A"
-            BuildableName = "YoutubeNoPub.app"
-            BlueprintName = "YoutubeNoPub"
-            ReferencedContainer = "container:YoutubeNoPub.xcodeproj">
+            BuildableName = "ShareManager.app"
+            BlueprintName = "ShareManager"
+            ReferencedContainer = "container:ShareManager.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
       <CommandLineArguments>
@@ -89,9 +89,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "23AE1EFDC623EC03807AAC1A"
-            BuildableName = "YoutubeNoPub.app"
-            BlueprintName = "YoutubeNoPub"
-            ReferencedContainer = "container:YoutubeNoPub.xcodeproj">
+            BuildableName = "ShareManager.app"
+            BlueprintName = "ShareManager"
+            ReferencedContainer = "container:ShareManager.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

@@ -30,7 +30,8 @@
       "Bash(git -C /Volumes/external-mac/fenyo/git3/youtubenopub add README.md)",
       "Bash(git -C:*)",
       "Bash(git -C /Volumes/external-mac/fenyo/git3/youtubenopub push)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(git mv *)"
     ]
   }
 }

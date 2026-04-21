@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 class ShareViewController: UIViewController {
 
-    let appGroup = "group.net.fenyo.apple.youtubenopub"
+    let appGroup = "group.net.fenyo.apple.sharemanager"
 
     override func viewDidLoad() {
         super.viewDidLoad()

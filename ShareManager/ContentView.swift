@@ -15,7 +15,7 @@ struct ContentView: View {
         }
     }
 
-    let appGroup = "group.net.fenyo.apple.youtubenopub"
+    let appGroup = "group.net.fenyo.apple.sharemanager"
 
     var body: some View {
         NavigationView {
@@ -28,7 +28,7 @@ struct ContentView: View {
                         Text("No shared URLs")
                             .font(.title2)
                             .foregroundColor(.secondary)
-                        Text("Share a URL from YouTube or any app using the Share button")
+                        Text("This app stores URLs you share from other apps using the Share button")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -122,15 +122,17 @@ struct ContentView: View {
     }
 
     private func fetchTitle(for urlString: String) {
-        guard titles[urlString] == nil else { return }
-        let youtubeURL = urlString.replacingOccurrences(of: "yout-ube.com", with: "youtube.com")
-        guard let encoded = youtubeURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let oembedURL = URL(string: "https://www.youtube.com/oembed?url=\(encoded)&format=json") else { return }
-        URLSession.shared.dataTask(with: oembedURL) { data, _, _ in
-            guard let data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let title = json["title"] as? String else { return }
-            DispatchQueue.main.async { titles[urlString] = title }
+        guard titles[urlString] == nil, let url = URL(string: urlString) else { return }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data, let html = String(data: data, encoding: .utf8),
+                  let match = html.range(of: "<title[^>]*>([^<]+)</title>", options: .regularExpression) else { return }
+            let tag = html[match]
+            guard let start = tag.firstIndex(of: ">"), let end = tag.range(of: "</title>") else { return }
+            let title = tag[tag.index(after: start)..<end.lowerBound]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !title.isEmpty {
+                DispatchQueue.main.async { titles[urlString] = String(title) }
+            }
         }.resume()
     }
 }

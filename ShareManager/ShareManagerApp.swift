@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct YoutubeNoPubApp: App {
+struct ShareManagerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

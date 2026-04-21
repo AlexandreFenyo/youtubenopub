@@ -1,44 +1,44 @@
 🇫🇷 Français
-Cette app pour iOS permet d'éviter la publicité dans YouTube : depuis l'app YouTube, partagez une vidéo avec ce programme, basculez dans cette app et cliquez sur "Ouvrir dans Safari". La vidéo s'affichera alors sans publicité.
+Cette app pour iOS permet de gérer les éléments que vous partagez depuis n'importe quelle app : appuyez sur le bouton Partager dans une app, choisissez ShareManager, puis retrouvez ici la liste de toutes les URLs partagées pour les consulter, les copier ou les ouvrir dans Safari.
 
 🇬🇧 English
-This iOS app lets you avoid ads on YouTube: from the YouTube app, share a video with this app, switch to it and tap "Open in Safari". The video will then play without ads.
+This iOS app lets you manage items you share from any app: tap the Share button in any app, choose ShareManager, then find here the list of every shared URL to view, copy, or open in Safari.
 
 🇪🇸 Español
-Esta app para iOS permite evitar la publicidad en YouTube: desde la app de YouTube, comparte un vídeo con este programa, cambia a esta app y pulsa "Abrir en Safari". El vídeo se mostrará sin publicidad.
+Esta app para iOS permite gestionar los elementos que compartes desde cualquier app: pulsa el botón Compartir en cualquier app, elige ShareManager y aquí encontrarás la lista de todas las URLs compartidas para consultarlas, copiarlas o abrirlas en Safari.
 
 🇧🇷 Português
-Este app para iOS permite evitar publicidade no YouTube: a partir do app do YouTube, partilhe um vídeo com este programa, mude para este app e toque em "Abrir no Safari". O vídeo será exibido sem publicidade.
+Este app para iOS permite gerir os itens que partilha a partir de qualquer app: toque no botão Partilhar numa app, escolha ShareManager e encontre aqui a lista de todos os URLs partilhados para consultar, copiar ou abrir no Safari.
 
 🇩🇪 Deutsch
-Diese iOS-App ermöglicht es, Werbung auf YouTube zu vermeiden: Teile in der YouTube-App ein Video mit diesem Programm, wechsle zu dieser App und tippe auf "In Safari öffnen". Das Video wird dann ohne Werbung abgespielt.
+Diese iOS-App hilft dir, die Inhalte zu verwalten, die du aus einer beliebigen App teilst: Tippe in einer App auf den Teilen-Knopf, wähle ShareManager, und finde hier die Liste aller geteilten URLs, um sie anzusehen, zu kopieren oder in Safari zu öffnen.
 
 🇮🇹 Italiano
-Questa app per iOS consente di evitare la pubblicità su YouTube: dall'app YouTube, condividi un video con questo programma, passa a questa app e tocca "Apri in Safari". Il video verrà visualizzato senza pubblicità.
+Questa app per iOS consente di gestire gli elementi che condividi da qualsiasi app: tocca il pulsante Condividi in un'app, scegli ShareManager e qui trovi l'elenco di tutti gli URL condivisi per consultarli, copiarli o aprirli in Safari.
 
 🇯🇵 日本語
-このiOSアプリを使えば、YouTubeの広告を回避できます。YouTubeアプリで動画を共有し、このアプリに切り替えて「Safariで開く」をタップしてください。動画が広告なしで再生されます。
+このiOSアプリを使えば、任意のアプリから共有したアイテムを管理できます。アプリの共有ボタンをタップしてShareManagerを選ぶと、共有したすべてのURLを一覧で表示し、コピーしたりSafariで開いたりできます。
 
 🇨🇳 简体中文
-这款 iOS 应用可帮助您避免 YouTube 广告：在 YouTube 应用中，将视频分享给此程序，切换到此应用，点击"在 Safari 中打开"。视频将在没有广告的情况下播放。
+这款 iOS 应用可帮助您管理从任意应用分享的内容：在应用中点击分享按钮，选择 ShareManager，即可在此查看所有已分享的 URL 列表，并进行查看、复制或在 Safari 中打开。
 
 🇹🇼 繁體中文
-這款 iOS 應用程式可讓您避免 YouTube 廣告：在 YouTube 應用程式中，將影片分享給此程式，切換至此應用程式並點選「在 Safari 中開啟」。影片將在沒有廣告的情況下播放。
+這款 iOS 應用程式可幫助您管理從任意應用程式分享的內容：在應用程式中點選分享按鈕，選擇 ShareManager，即可在此檢視所有已分享的 URL 清單，並進行檢視、複製或在 Safari 中開啟。
 
 🇰🇷 한국어
-이 iOS 앱을 사용하면 YouTube 광고를 피할 수 있습니다. YouTube 앱에서 동영상을 이 앱과 공유하고, 앱으로 전환한 후 "Safari에서 열기"를 탭하세요. 동영상이 광고 없이 재생됩니다.
+이 iOS 앱을 사용하면 어떤 앱에서든 공유한 항목을 관리할 수 있습니다. 앱에서 공유 버튼을 누르고 ShareManager를 선택하면, 공유한 모든 URL의 목록을 확인하고 복사하거나 Safari에서 열 수 있습니다.
 
 🇸🇦 العربية
-يتيح لك هذا التطبيق لنظام iOS تجنب الإعلانات على YouTube: من تطبيق YouTube، شارك مقطع فيديو مع هذا البرنامج، ثم انتقل إلى هذا التطبيق واضغط على "فتح في Safari". سيتم عرض الفيديو بدون إعلانات.
+يتيح لك هذا التطبيق لنظام iOS إدارة العناصر التي تشاركها من أي تطبيق: اضغط على زر المشاركة في أي تطبيق، اختر ShareManager، وستجد هنا قائمة بجميع الروابط المشتركة لعرضها أو نسخها أو فتحها في Safari.
 
 🇷🇺 Русский
-Это приложение для iOS позволяет избежать рекламы на YouTube: в приложении YouTube поделитесь видео с этой программой, переключитесь в это приложение и нажмите «Открыть в Safari». Видео будет воспроизведено без рекламы.
+Это приложение для iOS позволяет управлять элементами, которыми вы делитесь из любого приложения: нажмите кнопку «Поделиться» в приложении, выберите ShareManager и здесь вы найдёте список всех общих URL, чтобы просмотреть, скопировать или открыть их в Safari.
 
 🇮🇳 हिन्दी
-यह iOS ऐप YouTube पर विज्ञापनों से बचने में मदद करता है: YouTube ऐप से एक वीडियो इस प्रोग्राम के साथ शेयर करें, इस ऐप पर स्विच करें और "Safari में खोलें" पर टैप करें। वीडियो बिना विज्ञापनों के चलेगा।
+यह iOS ऐप आपको किसी भी ऐप से शेयर किए गए आइटम्स को प्रबंधित करने देता है: किसी ऐप में शेयर बटन पर टैप करें, ShareManager चुनें, और यहाँ आपको सभी शेयर किए गए URLs की सूची मिलेगी जिन्हें आप देख, कॉपी या Safari में खोल सकते हैं।
 
 🇳🇱 Nederlands
-Deze iOS-app helpt je advertenties op YouTube te vermijden: deel vanuit de YouTube-app een video met dit programma, schakel over naar deze app en tik op "Openen in Safari". De video wordt dan zonder advertenties afgespeeld.
+Deze iOS-app helpt je de items te beheren die je vanuit een willekeurige app deelt: tik op de deelknop in een app, kies ShareManager en vind hier de lijst van alle gedeelde URL's om ze te bekijken, te kopiëren of te openen in Safari.
 
 🇵🇱 Polski
-Ta aplikacja na iOS pozwala uniknąć reklam na YouTube: z aplikacji YouTube udostępnij film temu programowi, przełącz się na tę aplikację i naciśnij „Otwórz w Safari". Film zostanie wyświetlony bez reklam.
+Ta aplikacja na iOS pozwala zarządzać elementami udostępnianymi z dowolnej aplikacji: naciśnij przycisk Udostępnij w dowolnej aplikacji, wybierz ShareManager, a tutaj znajdziesz listę wszystkich udostępnionych adresów URL, które można przeglądać, kopiować lub otwierać w Safari.

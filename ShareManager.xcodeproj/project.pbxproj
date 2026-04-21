@@ -10,7 +10,7 @@
 		4E0E2115E2539188DFB64B90 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = C316293A883D1CF67A362105 /* Localizable.xcstrings */; };
 		51412A1C78F7C312D5EB5C3D /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 604A0931B8ACC6B321ED0A26 /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		745092421830A96F48BE63AF /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A088B16210AC977B75574740 /* Localizable.xcstrings */; };
-		B46F37276609E4BABAF85862 /* YoutubeNoPubApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BE852A7C9173959F733071B /* YoutubeNoPubApp.swift */; };
+		B46F37276609E4BABAF85862 /* ShareManagerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BE852A7C9173959F733071B /* ShareManagerApp.swift */; };
 		BA086DDC87BA00D0A2C4D931 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05146A80914C0035E72AC308 /* ContentView.swift */; };
 		C7197E054796DFD6A5289E4B /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D49ED7C032FCA6569457A6F5 /* ShareViewController.swift */; };
 		E9A5E82DB38F96CCFF52C38B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D38FCAD9F692FF75C3BC36B8 /* Assets.xcassets */; };
@@ -42,8 +42,8 @@
 
 /* Begin PBXFileReference section */
 		05146A80914C0035E72AC308 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		55C8AE1956815FA49F89016E /* YoutubeNoPub.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YoutubeNoPub.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		5BE852A7C9173959F733071B /* YoutubeNoPubApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YoutubeNoPubApp.swift; sourceTree = "<group>"; };
+		55C8AE1956815FA49F89016E /* ShareManager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ShareManager.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5BE852A7C9173959F733071B /* ShareManagerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareManagerApp.swift; sourceTree = "<group>"; };
 		604A0931B8ACC6B321ED0A26 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A088B16210AC977B75574740 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		BA6429D9D10009D6D2D8F809 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -51,7 +51,7 @@
 		D1DDCD9DA0B39399432D78D2 /* ShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
 		D38FCAD9F692FF75C3BC36B8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D49ED7C032FCA6569457A6F5 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
-		D681B163D3677D2EAF626592 /* YoutubeNoPub.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = YoutubeNoPub.entitlements; sourceTree = "<group>"; };
+		D681B163D3677D2EAF626592 /* ShareManager.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareManager.entitlements; sourceTree = "<group>"; };
 		E34A9B48D952527B831632D6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -60,7 +60,7 @@
 			isa = PBXGroup;
 			children = (
 				9B9AEF510D45054C87B3688E /* ShareExtension */,
-				ABE6246CB34D9C3DE7DBEAC1 /* YoutubeNoPub */,
+				ABE6246CB34D9C3DE7DBEAC1 /* ShareManager */,
 				C14992DF2D50218539EDB923 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -76,24 +76,24 @@
 			path = ShareExtension;
 			sourceTree = "<group>";
 		};
-		ABE6246CB34D9C3DE7DBEAC1 /* YoutubeNoPub */ = {
+		ABE6246CB34D9C3DE7DBEAC1 /* ShareManager */ = {
 			isa = PBXGroup;
 			children = (
 				D38FCAD9F692FF75C3BC36B8 /* Assets.xcassets */,
 				05146A80914C0035E72AC308 /* ContentView.swift */,
 				E34A9B48D952527B831632D6 /* Info.plist */,
 				A088B16210AC977B75574740 /* Localizable.xcstrings */,
-				D681B163D3677D2EAF626592 /* YoutubeNoPub.entitlements */,
-				5BE852A7C9173959F733071B /* YoutubeNoPubApp.swift */,
+				D681B163D3677D2EAF626592 /* ShareManager.entitlements */,
+				5BE852A7C9173959F733071B /* ShareManagerApp.swift */,
 			);
-			path = YoutubeNoPub;
+			path = ShareManager;
 			sourceTree = "<group>";
 		};
 		C14992DF2D50218539EDB923 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				604A0931B8ACC6B321ED0A26 /* ShareExtension.appex */,
-				55C8AE1956815FA49F89016E /* YoutubeNoPub.app */,
+				55C8AE1956815FA49F89016E /* ShareManager.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -101,9 +101,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		23AE1EFDC623EC03807AAC1A /* YoutubeNoPub */ = {
+		23AE1EFDC623EC03807AAC1A /* ShareManager */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = EEF794570DFEF893D6712D67 /* Build configuration list for PBXNativeTarget "YoutubeNoPub" */;
+			buildConfigurationList = EEF794570DFEF893D6712D67 /* Build configuration list for PBXNativeTarget "ShareManager" */;
 			buildPhases = (
 				8583CDD01DE49C5A4D45B90E /* Sources */,
 				84456277FB66593D0A7B9D3E /* Resources */,
@@ -114,11 +114,11 @@
 			dependencies = (
 				CE0EE74B7AE610773DBBA6B5 /* PBXTargetDependency */,
 			);
-			name = YoutubeNoPub;
+			name = ShareManager;
 			packageProductDependencies = (
 			);
-			productName = YoutubeNoPub;
-			productReference = 55C8AE1956815FA49F89016E /* YoutubeNoPub.app */;
+			productName = ShareManager;
+			productReference = 55C8AE1956815FA49F89016E /* ShareManager.app */;
 			productType = "com.apple.product-type.application";
 		};
 		9CB5F3BD848E74E08807BDAB /* ShareExtension */ = {
@@ -148,7 +148,7 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 			};
-			buildConfigurationList = EDFCF6CC18029953F1844590 /* Build configuration list for PBXProject "YoutubeNoPub" */;
+			buildConfigurationList = EDFCF6CC18029953F1844590 /* Build configuration list for PBXProject "ShareManager" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -177,7 +177,7 @@
 			projectRoot = "";
 			targets = (
 				9CB5F3BD848E74E08807BDAB /* ShareExtension */,
-				23AE1EFDC623EC03807AAC1A /* YoutubeNoPub */,
+				23AE1EFDC623EC03807AAC1A /* ShareManager */,
 			);
 		};
 /* End PBXProject section */
@@ -216,7 +216,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BA086DDC87BA00D0A2C4D931 /* ContentView.swift in Sources */,
-				B46F37276609E4BABAF85862 /* YoutubeNoPubApp.swift in Sources */,
+				B46F37276609E4BABAF85862 /* ShareManagerApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -235,17 +235,17 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = YoutubeNoPub/YoutubeNoPub.entitlements;
+				CODE_SIGN_ENTITLEMENTS = ShareManager/ShareManager.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				DEVELOPMENT_TEAM = JHZ84Y8364;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = YoutubeNoPub/Info.plist;
+				INFOPLIST_FILE = ShareManager/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = net.fenyo.apple.youtubenopub;
+				PRODUCT_BUNDLE_IDENTIFIER = net.fenyo.apple.sharemanager;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -256,17 +256,17 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = YoutubeNoPub/YoutubeNoPub.entitlements;
+				CODE_SIGN_ENTITLEMENTS = ShareManager/ShareManager.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				DEVELOPMENT_TEAM = JHZ84Y8364;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = YoutubeNoPub/Info.plist;
+				INFOPLIST_FILE = ShareManager/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = net.fenyo.apple.youtubenopub;
+				PRODUCT_BUNDLE_IDENTIFIER = net.fenyo.apple.sharemanager;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -405,7 +405,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = net.fenyo.apple.youtubenopub.shareextension;
+				PRODUCT_BUNDLE_IDENTIFIER = net.fenyo.apple.sharemanager.shareextension;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -425,7 +425,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = net.fenyo.apple.youtubenopub.shareextension;
+				PRODUCT_BUNDLE_IDENTIFIER = net.fenyo.apple.sharemanager.shareextension;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -444,7 +444,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		EDFCF6CC18029953F1844590 /* Build configuration list for PBXProject "YoutubeNoPub" */ = {
+		EDFCF6CC18029953F1844590 /* Build configuration list for PBXProject "ShareManager" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				56C40BCEBE00DB7592CBE46B /* Debug */,
@@ -453,7 +453,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		EEF794570DFEF893D6712D67 /* Build configuration list for PBXNativeTarget "YoutubeNoPub" */ = {
+		EEF794570DFEF893D6712D67 /* Build configuration list for PBXNativeTarget "ShareManager" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				40032BA8B9D274CD3D5C5329 /* Debug */,
