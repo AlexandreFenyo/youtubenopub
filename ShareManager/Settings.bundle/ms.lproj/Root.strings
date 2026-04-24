@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "Simulasi kelewatan rawak semasa mendapatkan tarikh";
 "Debug" = "Nyahpepijat";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Apabila didayakan, setiap pengambilan tarikh dilewatkan selama tempoh rawak antara 0 dan dua kali tamat masa. Jika kelewatan rawak melebihi tamat masa, pengambilan dibatalkan seperti tamat masa sebenar.";
+"Image description" = "Penerangan imej";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "Apabila didayakan, imej yang dikongsi dihantar ke perkhidmatan AI yang dipilih untuk menjana penerangan teks terperinci yang digunakan sebagai tajuk imej.";
+"Describe shared images with AI" = "Terangkan imej yang dikongsi dengan AI";
+"AI provider" = "Penyedia AI";
+"API key" = "Kunci API";
+"Custom model (optional)" = "Model tersuai (pilihan)";

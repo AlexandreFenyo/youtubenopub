@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "தேதி பெறுவதில் சீரற்ற தாமதங்களை உருவகப்படுத்தவும்";
 "Debug" = "பிழைத்திருத்தம்";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "இயக்கப்படும் போது, ஒவ்வொரு தேதி பெறுதலும் 0 முதல் காலக்கெடுவின் இரு மடங்கு வரை சீரற்ற கால அளவிற்கு தாமதிக்கப்படும். சீரற்ற தாமதம் காலக்கெடுவை மீறினால், உண்மையான காலக்கெடுவைப் போல பெறுதல் கைவிடப்படும்.";
+"Image description" = "படத்தின் விவரணை";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "இயக்கப்படும் போது, பகிரப்பட்ட படங்கள் படத்தின் தலைப்பாகப் பயன்படுத்தப்படும் விரிவான உரை விவரணத்தை உருவாக்க தேர்ந்தெடுக்கப்பட்ட AI சேவைக்கு அனுப்பப்படுகின்றன.";
+"Describe shared images with AI" = "பகிரப்பட்ட படங்களை AI மூலம் விவரிக்கவும்";
+"AI provider" = "AI வழங்குநர்";
+"API key" = "API திறவுகோல்";
+"Custom model (optional)" = "விருப்ப மாதிரி (விருப்பத்தேர்வு)";

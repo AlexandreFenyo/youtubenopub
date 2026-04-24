@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "Имитировать случайные задержки получения дат";
 "Debug" = "Отладка";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Когда включено, каждое получение даты задерживается на случайное время от 0 до удвоенного таймаута. Если случайная задержка превышает таймаут, получение прерывается как при истечении таймаута.";
+"Image description" = "Описание изображения";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "Когда включено, общие изображения отправляются в выбранный AI-сервис для создания подробного текстового описания, используемого в качестве названия изображения.";
+"Describe shared images with AI" = "Описывать общие изображения с помощью ИИ";
+"AI provider" = "Поставщик ИИ";
+"API key" = "Ключ API";
+"Custom model (optional)" = "Пользовательская модель (необязательно)";

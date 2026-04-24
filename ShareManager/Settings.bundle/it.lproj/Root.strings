@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "Simula ritardi casuali nel recupero delle date";
 "Debug" = "Debug";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Quando è abilitata, ogni recupero di data viene ritardato di una durata casuale compresa tra 0 e il doppio del timeout. Se il ritardo casuale supera il timeout, il recupero viene interrotto come se fosse scaduto.";
+"Image description" = "Descrizione immagine";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "Quando è abilitata, le immagini condivise vengono inviate al servizio IA scelto per generare una descrizione testuale dettagliata usata come titolo dell'immagine.";
+"Describe shared images with AI" = "Descrivi le immagini condivise con l'IA";
+"AI provider" = "Fornitore IA";
+"API key" = "Chiave API";
+"Custom model (optional)" = "Modello personalizzato (opzionale)";

@@ -8,6 +8,78 @@
             <key>Type</key>
             <string>PSGroupSpecifier</string>
             <key>Title</key>
+            <string>Image description</string>
+            <key>FooterText</key>
+            <string>When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title.</string>
+        </dict>
+        <dict>
+            <key>Type</key>
+            <string>PSToggleSwitchSpecifier</string>
+            <key>Title</key>
+            <string>Describe shared images with AI</string>
+            <key>Key</key>
+            <string>describeImagesEnabled</string>
+            <key>DefaultValue</key>
+            <true/>
+        </dict>
+        <dict>
+            <key>Type</key>
+            <string>PSMultiValueSpecifier</string>
+            <key>Title</key>
+            <string>AI provider</string>
+            <key>Key</key>
+            <string>describeImagesProvider</string>
+            <key>DefaultValue</key>
+            <string>apple</string>
+            <key>Titles</key>
+            <array>
+                <string>Anthropic (Claude)</string>
+                <string>OpenAI</string>
+                <string>Apple Intelligence</string>
+            </array>
+            <key>Values</key>
+            <array>
+                <string>anthropic</string>
+                <string>openai</string>
+                <string>apple</string>
+            </array>
+        </dict>
+        <dict>
+            <key>Type</key>
+            <string>PSTextFieldSpecifier</string>
+            <key>Title</key>
+            <string>API key</string>
+            <key>Key</key>
+            <string>describeImagesAPIKey</string>
+            <key>DefaultValue</key>
+            <string></string>
+            <key>IsSecure</key>
+            <true/>
+            <key>AutocapitalizationType</key>
+            <string>None</string>
+            <key>AutocorrectionType</key>
+            <string>No</string>
+        </dict>
+        <dict>
+            <key>Type</key>
+            <string>PSTextFieldSpecifier</string>
+            <key>Title</key>
+            <string>Custom model (optional)</string>
+            <key>Key</key>
+            <string>describeImagesModel</string>
+            <key>DefaultValue</key>
+            <string></string>
+            <key>IsSecure</key>
+            <false/>
+            <key>AutocapitalizationType</key>
+            <string>None</string>
+            <key>AutocorrectionType</key>
+            <string>No</string>
+        </dict>
+        <dict>
+            <key>Type</key>
+            <string>PSGroupSpecifier</string>
+            <key>Title</key>
             <string>Debug</string>
             <key>FooterText</key>
             <string>When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred.</string>

@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "ତାରିଖ ଆଣିବାରେ ଅନିୟମିତ ବିଳମ୍ବ ନକଲ କରନ୍ତୁ";
 "Debug" = "ଡିବଗ୍";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "ସକ୍ଷମ ହେଲେ, ପ୍ରତ୍ୟେକ ତାରିଖ ଆଣିବା 0 ଏବଂ ଟାଇମଆଉଟ୍‌ର ଦ୍ୱିଗୁଣ ମଧ୍ୟରେ ଅନିୟମିତ ଅବଧି ପାଇଁ ବିଳମ୍ବିତ ହୁଏ। ଅନିୟମିତ ବିଳମ୍ବ ଟାଇମଆଉଟ୍ ଅତିକ୍ରମ କଲେ, ଟାଇମଆଉଟ୍ ହୋଇଥିବା ପରି ଆଣିବା ବାତିଲ ହୁଏ।";
+"Image description" = "ଛବି ବର୍ଣ୍ଣନା";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "ସକ୍ଷମ ହେଲେ, ସେୟାର କରାଯାଇଥିବା ଛବିଗୁଡ଼ିକ ଚୟନ କରାଯାଇଥିବା AI ସେବାକୁ ପଠାଯାଏ ଯାହା ଦ୍ୱାରା ଛବିର ଶୀର୍ଷକ ଭାବରେ ବ୍ୟବହୃତ ବିସ୍ତୃତ ପାଠ୍ୟ ବର୍ଣ୍ଣନା ସୃଷ୍ଟି ହୁଏ।";
+"Describe shared images with AI" = "AI ସହିତ ସେୟାର କରାଯାଇଥିବା ଛବିଗୁଡ଼ିକର ବର୍ଣ୍ଣନା କରନ୍ତୁ";
+"AI provider" = "AI ପ୍ରଦାନକାରୀ";
+"API key" = "API କୀ";
+"Custom model (optional)" = "କଷ୍ଟମ୍ ମଡେଲ୍ (ଇଚ୍ଛାଧୀନ)";

@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "模拟获取日期的随机延迟";
 "Debug" = "调试";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "启用后，每次日期获取都会被随机延迟 0 到两倍超时时长之间。如果随机延迟超过超时时长，获取将被中止，如同发生超时。";
+"Image description" = "图片描述";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "启用后，分享的图片将被发送到所选的 AI 服务，以生成用作图片标题的详细文字描述。";
+"Describe shared images with AI" = "使用 AI 描述分享的图片";
+"AI provider" = "AI 服务商";
+"API key" = "API 密钥";
+"Custom model (optional)" = "自定义模型（可选）";

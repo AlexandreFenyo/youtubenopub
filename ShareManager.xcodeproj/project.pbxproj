@@ -54,7 +54,7 @@
 
 /* Begin PBXFileReference section */
 		0DE871E55F2A8CE83804710B /* ShareManager.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareManager.entitlements; sourceTree = "<group>"; };
-		157ABC405EA150CF49419AF0 /* ShareManager.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ShareManager.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		157ABC405EA150CF49419AF0 /* ShareManager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ShareManager.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		16A7BD1420F8B341109D5C72 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		244725878BB72D2D102FCA9F /* EXPLORATION_COMPLETE_SUMMARY.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = EXPLORATION_COMPLETE_SUMMARY.md; sourceTree = "<group>"; };
 		33D8DD54310EA569EB129319 /* Settings.bundle */ = {isa = PBXFileReference; lastKnownFileType = wrapper.cfbundle; path = Settings.bundle; sourceTree = "<group>"; };
@@ -67,7 +67,7 @@
 		7842681959DD896F961A5E17 /* README_ICON.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README_ICON.md; sourceTree = "<group>"; };
 		7CD2D8152FABA22FE13AAAFB /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		8D5E0EC954632EBA18D90B7B /* AppIconGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconGenerator.swift; sourceTree = "<group>"; };
-		8D98EB7FEBC75E5BB328B6BA /* ShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		8D98EB7FEBC75E5BB328B6BA /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F1FC9FE27ECDD5ECB53E929 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A52240337BC75323FE4A0364 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A5CF20A3B96B29465936AFEE /* ADVANCED_SOURCE_DETECTION.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = ADVANCED_SOURCE_DETECTION.md; sourceTree = "<group>"; };
@@ -183,8 +183,6 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
-				TargetAttributes = {
-				};
 			};
 			buildConfigurationList = D42E73EE13799B9310441635 /* Build configuration list for PBXProject "ShareManager" */;
 			developmentRegion = en;
@@ -319,6 +317,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				DEVELOPMENT_TEAM = JHZ84Y8364;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
@@ -340,6 +339,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ShareManager/ShareManager.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = JHZ84Y8364;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ShareManager/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
@@ -358,6 +358,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				DEVELOPMENT_TEAM = JHZ84Y8364;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
@@ -435,6 +436,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ShareManager/ShareManager.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = JHZ84Y8364;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ShareManager/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.6;

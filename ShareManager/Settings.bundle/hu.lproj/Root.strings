@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "Véletlenszerű dátumlekérési késleltetés szimulálása";
 "Debug" = "Hibakeresés";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Ha engedélyezve van, minden dátumlekérés véletlenszerű időtartammal késik, 0 és az időkorlát kétszerese között. Ha a véletlen késleltetés meghaladja az időkorlátot, a lekérés úgy szakad meg, mintha időtúllépés történt volna.";
+"Image description" = "Képleírás";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "Ha engedélyezve van, a megosztott képek a kiválasztott MI-szolgáltatásnak lesznek elküldve, hogy részletes szöveges leírás készüljön, ami a kép címeként használatos.";
+"Describe shared images with AI" = "Megosztott képek leírása MI-vel";
+"AI provider" = "MI-szolgáltató";
+"API key" = "API-kulcs";
+"Custom model (optional)" = "Egyéni modell (nem kötelező)";

@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "തീയതി എടുക്കുന്നതിൽ റാൻഡം കാലതാമസങ്ങൾ അനുകരിക്കുക";
 "Debug" = "ഡീബഗ്";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "പ്രാപ്തമാക്കിയാൽ, ഓരോ തീയതി എടുക്കലും 0 മുതൽ ടൈംഔട്ടിന്റെ ഇരട്ടി വരെ റാൻഡം സമയത്തിനു വൈകിപ്പിക്കും. റാൻഡം കാലതാമസം ടൈംഔട്ട് കവിഞ്ഞാൽ, ടൈംഔട്ട് സംഭവിച്ചതുപോലെ എടുക്കൽ റദ്ദാക്കപ്പെടും.";
+"Image description" = "ചിത്ര വിവരണം";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "പ്രാപ്തമാക്കിയാൽ, പങ്കിട്ട ചിത്രങ്ങൾ തിരഞ്ഞെടുത്ത AI സേവനത്തിലേക്ക് അയയ്ക്കുന്നു, ചിത്രത്തിന്റെ തലക്കെട്ടായി ഉപയോഗിക്കുന്ന വിശദമായ ടെക്സ്റ്റ് വിവരണം സൃഷ്ടിക്കാൻ.";
+"Describe shared images with AI" = "പങ്കിട്ട ചിത്രങ്ങൾ AI ഉപയോഗിച്ച് വിവരിക്കുക";
+"AI provider" = "AI ദാതാവ്";
+"API key" = "API കീ";
+"Custom model (optional)" = "ഇഷ്ടാനുസൃത മോഡൽ (ഐച്ഛികം)";

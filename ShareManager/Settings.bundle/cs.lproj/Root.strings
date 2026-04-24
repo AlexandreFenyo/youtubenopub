@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "Simulovat náhodná zpoždění při načítání dat";
 "Debug" = "Ladění";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Pokud je povoleno, každé načtení data je zpožděno o náhodný čas mezi 0 a dvojnásobkem časového limitu. Pokud náhodné zpoždění překročí limit, načítání je ukončeno jako při timeoutu.";
+"Image description" = "Popis obrázku";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "Pokud je povoleno, sdílené obrázky jsou odeslány do vybrané služby AI pro vytvoření podrobného textového popisu používaného jako název obrázku.";
+"Describe shared images with AI" = "Popsat sdílené obrázky pomocí AI";
+"AI provider" = "Poskytovatel AI";
+"API key" = "Klíč API";
+"Custom model (optional)" = "Vlastní model (volitelné)";

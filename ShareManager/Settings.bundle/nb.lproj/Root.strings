@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "Simuler tilfeldige forsinkelser ved datohenting";
 "Debug" = "Feilsøking";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Når aktivert, forsinkes hver datohenting med en tilfeldig varighet mellom 0 og det dobbelte av tidsavbruddet. Hvis den tilfeldige forsinkelsen overstiger tidsavbruddet, avbrytes hentingen som ved et reelt tidsavbrudd.";
+"Image description" = "Bildebeskrivelse";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "Når aktivert, sendes delte bilder til den valgte AI-tjenesten for å generere en detaljert tekstbeskrivelse som brukes som bildetittel.";
+"Describe shared images with AI" = "Beskriv delte bilder med AI";
+"AI provider" = "AI-leverandør";
+"API key" = "API-nøkkel";
+"Custom model (optional)" = "Egendefinert modell (valgfritt)";

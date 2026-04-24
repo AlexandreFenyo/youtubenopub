@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "จำลองการดีเลย์แบบสุ่มเมื่อดึงวันที่";
 "Debug" = "ดีบัก";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "เมื่อเปิดใช้งาน การดึงวันที่แต่ละครั้งจะถูกหน่วงเวลาแบบสุ่มระหว่าง 0 ถึงสองเท่าของเวลาที่หมดเวลา หากการหน่วงแบบสุ่มเกินเวลาที่หมดเวลา การดึงจะถูกยกเลิกเสมือนว่าเกิดการหมดเวลาขึ้นจริง";
+"Image description" = "คำอธิบายภาพ";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "เมื่อเปิดใช้งาน รูปภาพที่แชร์จะถูกส่งไปยังบริการ AI ที่เลือกเพื่อสร้างคำอธิบายข้อความโดยละเอียดที่ใช้เป็นชื่อเรื่องของภาพ";
+"Describe shared images with AI" = "อธิบายภาพที่แชร์ด้วย AI";
+"AI provider" = "ผู้ให้บริการ AI";
+"API key" = "คีย์ API";
+"Custom model (optional)" = "โมเดลกำหนดเอง (ไม่บังคับ)";

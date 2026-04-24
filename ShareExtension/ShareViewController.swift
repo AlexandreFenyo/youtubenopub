@@ -1,5 +1,6 @@
 import UIKit
 import UniformTypeIdentifiers
+import ImageIO
 import os.log
 
 class ShareViewController: UIViewController {
@@ -196,6 +197,116 @@ class ShareViewController: UIViewController {
         
         // Récupérer l'app source qui partage le contenu
         let sourceApp = getSourceApplication()
+
+        // -- Branche photo (public.image) traitée avant la branche URL,
+        //    car une photo partagée arrive généralement avec UTI public.jpeg
+        //    qui ne conforme pas à public.url.
+        for attachment in attachments {
+            if attachment.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                log("🖼 Image branch matched (hasItem public.image). Loading…")
+                attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { [weak self] data, error in
+                    self?.log("📥 Image loadItem: type=\(type(of: data)) err=\(error?.localizedDescription ?? "none")")
+
+                    // Images iOS sont presque toujours fournies comme URL.
+                    guard let imageURL = data as? URL, imageURL.isFileURL else {
+                        self?.log("⚠️ Image loadItem ne renvoie pas de file URL — fallback unsupported")
+                        DispatchQueue.main.async {
+                            self?.logUnsupportedPayloadAndComplete()
+                        }
+                        return
+                    }
+
+                    // Lectures AVANT la copie (sinon on perd l'accès
+                    // security-scoped et on mesure notre propre copie).
+                    let (srcModDate, gps): (Double?, (lat: Double, lon: Double)?) = {
+                        let didStart = imageURL.startAccessingSecurityScopedResource()
+                        defer { if didStart { imageURL.stopAccessingSecurityScopedResource() } }
+                        var mod: Double? = nil
+                        if let attrs = try? FileManager.default.attributesOfItem(atPath: imageURL.path),
+                           let d = attrs[.modificationDate] as? Date {
+                            mod = d.timeIntervalSince1970
+                        }
+                        let gpsRead = Self.readGPS(from: imageURL)
+                        return (mod, gpsRead)
+                    }()
+
+                    guard let copied = self?.copyFileToAppGroup(originalURL: imageURL) else {
+                        self?.log("⚠️ Échec de la copie de la photo dans l'App Group — unsupported.")
+                        DispatchQueue.main.async {
+                            self?.logUnsupportedPayloadAndComplete()
+                        }
+                        return
+                    }
+                    let filename = imageURL.lastPathComponent
+                    let title = (pageTitle?.isEmpty == false) ? pageTitle : filename
+                    let finalSource = sourceApp ?? "Photos"
+                    self?.log("🖼 Photo imported: \(copied.lastPathComponent) modDate=\(String(describing: srcModDate)) gps=\(String(describing: gps))")
+                    self?.save(urlString: copied.absoluteString,
+                               sourceApp: finalSource,
+                               pageTitle: title,
+                               kind: "photo",
+                               modifiedAt: srcModDate,
+                               latitude: gps?.lat,
+                               longitude: gps?.lon)
+                    DispatchQueue.main.async {
+                        self?.showCheckmark(sourceApp: finalSource)
+                    }
+                }
+                return
+            }
+        }
+
+        // -- Branche vidéo (public.movie) traitée avant URL : un mp4 partagé
+        //    arrive typiquement avec UTI public.mpeg-4 qui conforme à
+        //    public.movie → public.audiovisual-content → public.data, mais pas
+        //    à public.url.
+        for attachment in attachments {
+            if attachment.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
+                log("🎬 Video branch matched (hasItem public.movie). Loading…")
+                attachment.loadItem(forTypeIdentifier: UTType.movie.identifier, options: nil) { [weak self] data, error in
+                    self?.log("📥 Video loadItem: type=\(type(of: data)) err=\(error?.localizedDescription ?? "none")")
+
+                    guard let videoURL = data as? URL, videoURL.isFileURL else {
+                        self?.log("⚠️ Video loadItem ne renvoie pas de file URL — fallback unsupported")
+                        DispatchQueue.main.async {
+                            self?.logUnsupportedPayloadAndComplete()
+                        }
+                        return
+                    }
+
+                    let srcModDate: Double? = {
+                        let didStart = videoURL.startAccessingSecurityScopedResource()
+                        defer { if didStart { videoURL.stopAccessingSecurityScopedResource() } }
+                        if let attrs = try? FileManager.default.attributesOfItem(atPath: videoURL.path),
+                           let d = attrs[.modificationDate] as? Date {
+                            return d.timeIntervalSince1970
+                        }
+                        return nil
+                    }()
+
+                    guard let copied = self?.copyFileToAppGroup(originalURL: videoURL) else {
+                        self?.log("⚠️ Échec de la copie de la vidéo dans l'App Group — unsupported.")
+                        DispatchQueue.main.async {
+                            self?.logUnsupportedPayloadAndComplete()
+                        }
+                        return
+                    }
+                    let filename = videoURL.lastPathComponent
+                    let title = (pageTitle?.isEmpty == false) ? pageTitle : filename
+                    let finalSource = sourceApp ?? "Videos"
+                    self?.log("🎬 Video imported: \(copied.lastPathComponent) modDate=\(String(describing: srcModDate))")
+                    self?.save(urlString: copied.absoluteString,
+                               sourceApp: finalSource,
+                               pageTitle: title,
+                               kind: "video",
+                               modifiedAt: srcModDate)
+                    DispatchQueue.main.async {
+                        self?.showCheckmark(sourceApp: finalSource)
+                    }
+                }
+                return
+            }
+        }
 
         for attachment in attachments {
             if attachment.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
@@ -836,7 +947,26 @@ class ShareViewController: UIViewController {
         task.resume()
     }
 
-    private func save(urlString: String, sourceApp: String?, pageTitle: String?, kind: String = "url", modifiedAt: Double? = nil) {
+    /// Lit les tags GPS EXIF d'une image et renvoie (lat, lon) signés en
+    /// degrés décimaux. Nil si l'image n'a pas de GPS ou si la lecture échoue.
+    static func readGPS(from fileURL: URL) -> (lat: Double, lon: Double)? {
+        guard let src = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [String: Any],
+              let gps = props[kCGImagePropertyGPSDictionary as String] as? [String: Any],
+              var lat = gps[kCGImagePropertyGPSLatitude as String] as? Double,
+              var lon = gps[kCGImagePropertyGPSLongitude as String] as? Double else {
+            return nil
+        }
+        if let ref = gps[kCGImagePropertyGPSLatitudeRef as String] as? String, ref.uppercased() == "S" {
+            lat = -lat
+        }
+        if let ref = gps[kCGImagePropertyGPSLongitudeRef as String] as? String, ref.uppercased() == "W" {
+            lon = -lon
+        }
+        return (lat, lon)
+    }
+
+    private func save(urlString: String, sourceApp: String?, pageTitle: String?, kind: String = "url", modifiedAt: Double? = nil, latitude: Double? = nil, longitude: Double? = nil) {
         guard let defaults = UserDefaults(suiteName: appGroup) else {
             print("❌ ERROR: Cannot access UserDefaults for app group: \(appGroup)")
             print("   Make sure App Groups capability is enabled in both targets!")
@@ -873,15 +1003,18 @@ class ShareViewController: UIViewController {
         if let title = pageTitle, !title.isEmpty {
             newItem["title"] = title
         }
-        // Pour les fichiers, si on a réussi à lire la date, on l'utilise,
-        // sinon on tombe sur "now" pour éviter l'absence de date.
-        // Pour les textes, c'est systématiquement "now".
+        // Pour les fichiers ET les photos, si on a réussi à lire la date on
+        // l'utilise, sinon on tombe sur "now". Pour les textes : "now".
         // Pour les URLs, modifiedAt reste absent — l'app ira le chercher.
-        if kind == "file" {
+        if kind == "file" || kind == "photo" || kind == "video" {
             newItem["modifiedAt"] = modifiedAt ?? now
         } else if kind == "text" {
             newItem["modifiedAt"] = now
         }
+
+        // Métadonnées GPS (photos uniquement).
+        if let latitude = latitude { newItem["latitude"] = latitude }
+        if let longitude = longitude { newItem["longitude"] = longitude }
 
         items.insert(newItem, at: 0)
 

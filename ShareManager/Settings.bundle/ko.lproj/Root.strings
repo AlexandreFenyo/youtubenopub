@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "날짜 가져오기 지연을 무작위로 시뮬레이션";
 "Debug" = "디버그";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "사용 시, 각 날짜 가져오기는 0과 시간 초과의 두 배 사이의 임의의 시간만큼 지연됩니다. 임의 지연이 시간 초과를 넘으면, 가져오기는 시간 초과가 발생한 것처럼 중단됩니다.";
+"Image description" = "이미지 설명";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "사용 시 공유된 이미지는 선택한 AI 서비스로 전송되어 이미지 제목으로 사용되는 자세한 텍스트 설명이 생성됩니다.";
+"Describe shared images with AI" = "공유 이미지를 AI로 설명";
+"AI provider" = "AI 제공자";
+"API key" = "API 키";
+"Custom model (optional)" = "사용자 지정 모델(선택 사항)";

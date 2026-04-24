@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "Giả lập độ trễ ngẫu nhiên khi lấy ngày";
 "Debug" = "Gỡ lỗi";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Khi bật, mỗi lần lấy ngày sẽ bị trì hoãn một khoảng thời gian ngẫu nhiên từ 0 đến hai lần thời gian chờ. Nếu độ trễ ngẫu nhiên vượt quá thời gian chờ, quá trình lấy sẽ bị hủy như khi hết thời gian chờ thực sự.";
+"Image description" = "Mô tả hình ảnh";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "Khi bật, hình ảnh đã chia sẻ được gửi đến dịch vụ AI đã chọn để tạo mô tả văn bản chi tiết dùng làm tiêu đề của hình ảnh.";
+"Describe shared images with AI" = "Mô tả hình ảnh đã chia sẻ bằng AI";
+"AI provider" = "Nhà cung cấp AI";
+"API key" = "Khóa API";
+"Custom model (optional)" = "Mô hình tùy chỉnh (tùy chọn)";

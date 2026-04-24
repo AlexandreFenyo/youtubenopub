@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "Προσομοίωση τυχαίων καθυστερήσεων ανάκτησης ημερομηνιών";
 "Debug" = "Εντοπισμός σφαλμάτων";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Όταν ενεργοποιηθεί, κάθε ανάκτηση ημερομηνίας καθυστερεί για τυχαίο χρονικό διάστημα μεταξύ 0 και του διπλάσιου του χρονικού ορίου. Εάν η τυχαία καθυστέρηση υπερβαίνει το χρονικό όριο, η ανάκτηση ακυρώνεται σαν να έληξε.";
+"Image description" = "Περιγραφή εικόνας";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "Όταν ενεργοποιηθεί, οι κοινόχρηστες εικόνες αποστέλλονται στην επιλεγμένη υπηρεσία ΤΝ για τη δημιουργία λεπτομερούς κειμενικής περιγραφής που χρησιμοποιείται ως τίτλος της εικόνας.";
+"Describe shared images with AI" = "Περιγραφή κοινόχρηστων εικόνων με ΤΝ";
+"AI provider" = "Πάροχος ΤΝ";
+"API key" = "Κλειδί API";
+"Custom model (optional)" = "Προσαρμοσμένο μοντέλο (προαιρετικό)";

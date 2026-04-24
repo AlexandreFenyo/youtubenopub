@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "Willekeurige vertraging bij ophalen van datums simuleren";
 "Debug" = "Foutopsporing";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Indien ingeschakeld wordt elke datumophaal vertraagd met een willekeurige duur tussen 0 en het dubbele van de time-out. Als de willekeurige vertraging de time-out overschrijdt, wordt de ophaalactie geannuleerd alsof er een time-out optrad.";
+"Image description" = "Beeldbeschrijving";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "Indien ingeschakeld worden gedeelde afbeeldingen naar de gekozen AI-service gestuurd om een gedetailleerde tekstbeschrijving te genereren die als titel van de afbeelding wordt gebruikt.";
+"Describe shared images with AI" = "Gedeelde afbeeldingen beschrijven met AI";
+"AI provider" = "AI-provider";
+"API key" = "API-sleutel";
+"Custom model (optional)" = "Aangepast model (optioneel)";

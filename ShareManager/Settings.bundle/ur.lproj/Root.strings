@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "تاریخ حاصل کرنے میں بے ترتیب تاخیر کی نقل کریں";
 "Debug" = "ڈیبگ";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "فعال ہونے پر، ہر تاریخ حاصل کرنا 0 اور ٹائم آؤٹ کے دوگنے کے درمیان بے ترتیب دورانیے تک تاخیر کا شکار ہوتا ہے۔ اگر بے ترتیب تاخیر ٹائم آؤٹ سے تجاوز کر جائے، تو حاصل کرنا حقیقی ٹائم آؤٹ کی طرح منسوخ کر دیا جاتا ہے۔";
+"Image description" = "تصویر کی وضاحت";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "فعال ہونے پر، شیئر کی گئی تصاویر کو منتخب AI سروس کو بھیجا جاتا ہے تاکہ تصویر کے عنوان کے طور پر استعمال ہونے والی تفصیلی متنی وضاحت تیار کی جا سکے۔";
+"Describe shared images with AI" = "شیئر کی گئی تصاویر کی AI سے وضاحت کریں";
+"AI provider" = "AI فراہم کنندہ";
+"API key" = "API کلید";
+"Custom model (optional)" = "حسب ضرورت ماڈل (اختیاری)";

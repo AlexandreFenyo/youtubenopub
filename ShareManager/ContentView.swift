@@ -1,6 +1,11 @@
 import SwiftUI
 import WebKit
 import QuickLook
+import CoreLocation
+import Vision
+#if canImport(Translation)
+import Translation
+#endif
 
 // MARK: - Data model
 
@@ -24,6 +29,20 @@ struct SharedItem: Codable, Identifiable, Hashable {
     /// pour une URL : le `Last-Modified` HTTP une fois récupéré.
     /// Nil pour une URL pas encore interrogée.
     var modifiedAt: Double?
+    /// Métadonnées GPS EXIF (photos uniquement).
+    var latitude: Double?
+    var longitude: Double?
+    /// Nom de lieu résolu via CLGeocoder. Nil tant que la résolution n'a
+    /// pas eu lieu. "" (vide) indique une résolution tentée sans succès.
+    var placeName: String?
+    /// Vrai si une tentative de description IA de la photo a été faite
+    /// (succès ou échec). Bloque les retentatives automatiques.
+    var aiDescribed: Bool?
+    /// Dernière valeur de `modifiedAt` que l'utilisateur a "vu" (= a
+    /// ouvert après cette date). Permet de mettre le titre en gras tant que
+    /// `modifiedAt > lastSeenModifiedAt` (ou que `lastSeenModifiedAt` est nil
+    /// et qu'on a déjà une date). S'applique aux URLs uniquement.
+    var lastSeenModifiedAt: Double?
 
     var effectiveKind: String {
         if let k = kind { return k }
@@ -84,15 +103,24 @@ struct ContentView: View {
     @State private var fetchingDateIDs: Set<String> = []
     @State private var refreshTask: Task<Void, Never>? = nil
     @State private var blinkPhase: Bool = false
+    @State private var geocodingIDs: Set<String> = []
+    @State private var describingIDs: Set<String> = []
+    @State private var editingItem: SharedItem? = nil
+    @State private var pendingLabelTranslations: [LabelTranslationJob] = []
     /// Passe à true après le tout premier `loadItems()` afin que l'auto-fetch
     /// ne se déclenche que pour les items apparus APRÈS le démarrage.
     @State private var hasInitialized: Bool = false
 
     @AppStorage("colorSchemePreference") private var colorSchemePreference: Int = 0
     @AppStorage("debugLogsEnabled", store: UserDefaults(suiteName: "group.net.fenyo.apple.sharemanager")) private var debugLogsEnabled = false
-    /// Reflet du toggle de la Settings.bundle (Réglages iOS). Permet de
-    /// piloter l'indicateur visuel sans lire UserDefaults à chaque render.
-    @AppStorage("simulateDateDelay") private var simulateDateDelay: Bool = false
+
+    /// Lit *à chaque render* la valeur écrite par la Settings.bundle dans
+    /// UserDefaults.standard. On évite `@AppStorage` qui peut conserver une
+    /// valeur stale quand la modif vient d'un autre process (Réglages iOS).
+    /// Le timer à 100 ms fournit une re-évaluation suffisamment fréquente.
+    private var simulateDateDelay: Bool {
+        UserDefaults.standard.bool(forKey: "simulateDateDelay")
+    }
 
     let appGroup = "group.net.fenyo.apple.sharemanager"
 
@@ -131,6 +159,11 @@ struct ContentView: View {
         }
         .sheet(item: $textToPreview) { payload in
             TextPreviewView(text: payload.text, title: payload.title)
+        }
+        .sheet(item: $editingItem) { item in
+            EditTitleView(initialTitle: item.title ?? "") { newTitle in
+                updateItemTitle(id: item.id, to: newTitle)
+            }
         }
         .sheet(isPresented: $showDebugLogs) { debugLogsSheet }
         .overlay(alignment: .top) { themeOverlay }
@@ -183,6 +216,18 @@ struct ContentView: View {
         .onChange(of: selectedFolder) { _, newValue in
             if let newValue {
                 UserDefaults(suiteName: appGroup)?.set(newValue, forKey: StoreKeys.selectedFolder)
+            }
+        }
+        .background(labelTranslatorHost)
+    }
+
+    /// Host invisible qui exécute la traduction on-device des labels Vision
+    /// sur iOS 18+. Inutile (no-op) sur les versions antérieures.
+    @ViewBuilder
+    private var labelTranslatorHost: some View {
+        if #available(iOS 18.0, *) {
+            LabelTranslator(pending: $pendingLabelTranslations) { id, translated in
+                updateItemTitle(id: id, to: translated)
             }
         }
     }
@@ -240,6 +285,7 @@ struct ContentView: View {
                         itemRow(item)
                     }
                     .onDelete(perform: deleteItems)
+                    .onMove(perform: moveItems)
                 }
                 .refreshable {
                     await pullToRefreshDates()
@@ -354,6 +400,31 @@ struct ContentView: View {
                         .fontWeight(.medium)
                         .lineLimit(2)
                 }
+            case "photo":
+                HStack(spacing: 8) {
+                    Image(systemName: "photo.fill")
+                        .foregroundColor(.indigo)
+                    if describingIDs.contains(item.id) {
+                        Text("Describing image…")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .opacity(blinkPhase ? 1.0 : 0.35)
+                    } else {
+                        Text(item.title ?? linkURL?.lastPathComponent ?? item.url)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .lineLimit(2)
+                    }
+                }
+            case "video":
+                HStack(spacing: 8) {
+                    Image(systemName: "video.fill")
+                        .foregroundColor(.red)
+                    Text(item.title ?? linkURL?.lastPathComponent ?? item.url)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .lineLimit(2)
+                }
             case "text":
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "text.alignleft")
@@ -369,12 +440,13 @@ struct ContentView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             default: // "url"
+                let unread = isUnread(item)
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "globe")
                         .foregroundColor(Color(red: 0, green: 0.45, blue: 0.2))
                     Text(item.title ?? item.url)
                         .font(.subheadline)
-                        .fontWeight(.medium)
+                        .fontWeight(unread ? .bold : .medium)
                         .lineLimit(2)
                 }
                 if item.title != nil {
@@ -397,21 +469,28 @@ struct ContentView: View {
             }
 
             dateRow(for: item)
+            placeRow(for: item)
         }
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture {
             switch kind {
-            case "file":
+            case "file", "photo", "video":
                 if let link = linkURL { previewFileURL = link }
             case "text":
                 textToPreview = TextPreviewPayload(text: item.url, title: item.title)
             default:
+                markAsSeen(itemID: item.id)
                 if let link = linkURL { safariFullScreenURL = link }
             }
         }
         .contextMenu {
+            Button {
+                editingItem = item
+            } label: {
+                Label("Edit title", systemImage: "pencil")
+            }
             if kind == "url" {
                 Button {
                     UIPasteboard.general.string = item.url
@@ -444,6 +523,13 @@ struct ContentView: View {
         .onAppear {
             if kind == "url" {
                 fetchTitle(for: item)
+            }
+            if kind == "photo",
+               item.latitude != nil,
+               item.longitude != nil,
+               item.placeName == nil,
+               !geocodingIDs.contains(item.id) {
+                startReverseGeocode(for: item)
             }
         }
     }
@@ -578,6 +664,28 @@ struct ContentView: View {
         } else {
             hasInitialized = true
         }
+
+        // Description IA : photos dont `aiDescribed` n'est pas à true et
+        // pour lesquelles la config autorise l'appel. Une seule tentative
+        // par item (succès ou échec) pour éviter tout spam API.
+        triggerPendingAIDescriptions()
+    }
+
+    private func triggerPendingAIDescriptions() {
+        guard UserDefaults.standard.bool(forKey: "describeImagesEnabled") else { return }
+        let provider = UserDefaults.standard.string(forKey: "describeImagesProvider") ?? "anthropic"
+        let apiKey = (UserDefaults.standard.string(forKey: "describeImagesAPIKey") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let customModel = (UserDefaults.standard.string(forKey: "describeImagesModel") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Apple Intelligence (on-device Vision) n'a pas besoin de clé.
+        if provider != "apple" && apiKey.isEmpty { return }
+
+        for item in items where item.effectiveKind == "photo"
+                                && item.aiDescribed != true
+                                && !describingIDs.contains(item.id) {
+            startAIDescribe(item: item, provider: provider, apiKey: apiKey, customModel: customModel)
+        }
     }
 
     private func saveItems(_ newItems: [SharedItem]? = nil) {
@@ -634,6 +742,31 @@ struct ContentView: View {
 
     // MARK: - Item CRUD
 
+    /// Réordonne les items du folder courant. Les items des autres folders
+    /// gardent leur position relative dans le tableau global.
+    private func moveItems(from source: IndexSet, to destination: Int) {
+        // 1. Extraire l'ordre actuel des items du folder courant.
+        var folderItems = currentItems
+        folderItems.move(fromOffsets: source, toOffset: destination)
+
+        // 2. Reconstruire `items` : aux positions des items du folder courant,
+        //    injecter la nouvelle séquence ; ailleurs, conserver tel quel.
+        var newItems: [SharedItem] = []
+        newItems.reserveCapacity(items.count)
+        var iter = folderItems.makeIterator()
+        for existing in items {
+            if existing.folder == currentFolder {
+                if let next = iter.next() {
+                    newItems.append(next)
+                }
+            } else {
+                newItems.append(existing)
+            }
+        }
+        items = newItems
+        saveItems()
+    }
+
     private func deleteItems(at offsets: IndexSet) {
         let removedItems = offsets.map { currentItems[$0] }
         removedItems.forEach { removeFileIfLocal($0.url) }
@@ -658,6 +791,308 @@ struct ContentView: View {
     private func removeFileIfLocal(_ urlString: String) {
         guard let url = URL(string: urlString), url.isFileURL else { return }
         try? FileManager.default.removeItem(at: url)
+    }
+
+    // MARK: - Unread state (URL items)
+
+    /// Un item URL est "non lu" (titre en gras) si :
+    /// - il a une `modifiedAt` connue (première récupération réussie), ET
+    /// - soit `lastSeenModifiedAt` est nil (jamais ouvert depuis qu'on a
+    ///   la date), soit `modifiedAt > lastSeenModifiedAt` (la page a une
+    ///   version plus récente que lors de la dernière ouverture).
+    private func isUnread(_ item: SharedItem) -> Bool {
+        guard item.effectiveKind == "url",
+              let mod = item.modifiedAt else { return false }
+        guard let seen = item.lastSeenModifiedAt else { return true }
+        return mod > seen
+    }
+
+    /// Appelé quand l'utilisateur ouvre une URL : on mémorise la date vue
+    /// pour ne plus marquer l'item comme "nouveau" jusqu'à la prochaine
+    /// modification remotelement détectée.
+    private func markAsSeen(itemID: String) {
+        guard let idx = items.firstIndex(where: { $0.id == itemID }),
+              let mod = items[idx].modifiedAt else { return }
+        if items[idx].lastSeenModifiedAt != mod {
+            items[idx].lastSeenModifiedAt = mod
+            saveItems()
+        }
+    }
+
+    // MARK: - AI image description
+
+    private func startAIDescribe(item: SharedItem, provider: String, apiKey: String, customModel: String) {
+        describingIDs.insert(item.id)
+        let id = item.id
+        let urlString = item.url
+        Task.detached(priority: .utility) {
+            let description = await Self.describeImage(urlString: urlString,
+                                                       provider: provider,
+                                                       apiKey: apiKey,
+                                                       customModel: customModel)
+            await MainActor.run {
+                describingIDs.remove(id)
+                updateItemAfterAIDescribe(id: id, description: description, provider: provider)
+            }
+        }
+    }
+
+    private func updateItemAfterAIDescribe(id: String, description: String?, provider: String) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        if let description, !description.isEmpty {
+            items[idx].title = description
+            items[idx].aiDescribed = true
+            saveItems()
+            // Si la langue de l'app n'est pas l'anglais et que les labels
+            // viennent d'Apple Vision (anglais), enfiler pour traduction
+            // on-device (iOS 18+).
+            if provider == "apple" {
+                let lang = Locale.current.language.languageCode?.identifier ?? "en"
+                if lang != "en", #available(iOS 18.0, *) {
+                    pendingLabelTranslations.append(LabelTranslationJob(id: id, sourceText: description))
+                }
+            }
+        } else {
+            items[idx].aiDescribed = true
+            saveItems()
+        }
+    }
+
+    /// Charge l'image, la convertit en JPEG (max 1568 px sur le plus grand
+    /// côté) puis appelle le provider choisi. Renvoie la description texte
+    /// ou nil en cas d'échec.
+    static func describeImage(urlString: String, provider: String, apiKey: String, customModel: String) async -> String? {
+        guard let url = URL(string: urlString), url.isFileURL,
+              let raw = try? Data(contentsOf: url) else { return nil }
+
+        // Apple Intelligence (on-device Vision) : pas d'appel réseau,
+        // pas besoin de compression JPEG ni de clé.
+        if provider == "apple" {
+            return await describeViaApple(imageData: raw)
+        }
+
+        guard let (jpeg, mediaType) = prepareImageForAI(data: raw) else { return nil }
+        let base64 = jpeg.base64EncodedString()
+
+        let lang = Locale.current.language.languageCode?.identifier ?? "en"
+        let prompt = "Describe this image in rich, visual detail: subjects, objects, colors, composition, lighting, mood, and any notable elements. Respond in the language with BCP-47 code \"\(lang)\". Return only the description itself, with no preamble, no quotes, no labels."
+
+        switch provider {
+        case "openai":
+            let model = customModel.isEmpty ? "gpt-4o" : customModel
+            return await describeViaOpenAI(apiKey: apiKey, base64: base64, mediaType: mediaType, prompt: prompt, model: model)
+        default:
+            let model = customModel.isEmpty ? "claude-sonnet-4-5" : customModel
+            return await describeViaAnthropic(apiKey: apiKey, base64: base64, mediaType: mediaType, prompt: prompt, model: model)
+        }
+    }
+
+    /// Classification on-device via Vision (`VNClassifyImageRequest`).
+    /// Retourne la liste des labels au-dessus d'un seuil de confiance,
+    /// joints par des virgules. Aucun appel réseau.
+    static func describeViaApple(imageData: Data) async -> String? {
+        guard let cgImage = UIImage(data: imageData)?.cgImage else { return nil }
+        return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+            let request = VNClassifyImageRequest { req, error in
+                if let error {
+                    print("Vision error: \(error.localizedDescription)")
+                    continuation.resume(returning: nil)
+                    return
+                }
+                guard let observations = req.results as? [VNClassificationObservation] else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                // Seuil de confiance + top 15 labels max. On garde l'ordre
+                // natif (déjà trié par confiance décroissante).
+                let labels = observations
+                    .filter { $0.confidence > 0.3 }
+                    .prefix(15)
+                    .map { $0.identifier.replacingOccurrences(of: "_", with: " ") }
+                if labels.isEmpty {
+                    continuation.resume(returning: nil)
+                } else {
+                    continuation.resume(returning: labels.joined(separator: ", "))
+                }
+            }
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            do {
+                try handler.perform([request])
+            } catch {
+                print("Vision perform error: \(error.localizedDescription)")
+                continuation.resume(returning: nil)
+            }
+        }
+    }
+
+    /// Normalise l'image en JPEG redimensionné. Accepte HEIC/PNG/JPEG et
+    /// tout ce que `UIImage(data:)` sait décoder.
+    static func prepareImageForAI(data: Data) -> (Data, String)? {
+        guard var image = UIImage(data: data) else { return nil }
+        let maxDim: CGFloat = 1568
+        let w = image.size.width, h = image.size.height
+        if max(w, h) > maxDim {
+            let scale = maxDim / max(w, h)
+            let newSize = CGSize(width: w * scale, height: h * scale)
+            let renderer = UIGraphicsImageRenderer(size: newSize)
+            image = renderer.image { _ in
+                image.draw(in: CGRect(origin: .zero, size: newSize))
+            }
+        }
+        guard let jpeg = image.jpegData(compressionQuality: 0.85) else { return nil }
+        return (jpeg, "image/jpeg")
+    }
+
+    static func describeViaAnthropic(apiKey: String, base64: String, mediaType: String, prompt: String, model: String) async -> String? {
+        guard let endpoint = URL(string: "https://api.anthropic.com/v1/messages") else { return nil }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.timeoutInterval = 60
+
+        let body: [String: Any] = [
+            "model": model,
+            "max_tokens": 1024,
+            "messages": [[
+                "role": "user",
+                "content": [
+                    ["type": "image",
+                     "source": ["type": "base64",
+                                "media_type": mediaType,
+                                "data": base64]],
+                    ["type": "text", "text": prompt],
+                ],
+            ]],
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                if let s = String(data: data, encoding: .utf8) {
+                    print("Anthropic HTTP error body: \(s.prefix(300))")
+                }
+                return nil
+            }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let content = json["content"] as? [[String: Any]],
+                  let first = content.first(where: { ($0["type"] as? String) == "text" }),
+                  let text = first["text"] as? String else {
+                return nil
+            }
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            print("Anthropic error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    static func describeViaOpenAI(apiKey: String, base64: String, mediaType: String, prompt: String, model: String) async -> String? {
+        guard let endpoint = URL(string: "https://api.openai.com/v1/chat/completions") else { return nil }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.timeoutInterval = 60
+
+        let body: [String: Any] = [
+            "model": model,
+            "max_tokens": 1024,
+            "messages": [[
+                "role": "user",
+                "content": [
+                    ["type": "text", "text": prompt],
+                    ["type": "image_url",
+                     "image_url": ["url": "data:\(mediaType);base64,\(base64)"]],
+                ],
+            ]],
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                if let s = String(data: data, encoding: .utf8) {
+                    print("OpenAI HTTP error body: \(s.prefix(300))")
+                }
+                return nil
+            }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let choices = json["choices"] as? [[String: Any]],
+                  let first = choices.first,
+                  let message = first["message"] as? [String: Any],
+                  let content = message["content"] as? String else {
+                return nil
+            }
+            return content.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            print("OpenAI error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    // MARK: - Place row & reverse geocoding (photos)
+
+    @ViewBuilder
+    private func placeRow(for item: SharedItem) -> some View {
+        if item.effectiveKind == "photo",
+           item.latitude != nil,
+           item.longitude != nil {
+            let resolving = geocodingIDs.contains(item.id)
+            HStack(spacing: 4) {
+                Image(systemName: "mappin.and.ellipse")
+                    .font(.caption2)
+                if let place = item.placeName, !place.isEmpty {
+                    Text(place)
+                        .font(.caption2)
+                } else if resolving || item.placeName == nil {
+                    Text("Fetching location…")
+                        .font(.caption2)
+                        .opacity(blinkPhase ? 1.0 : 0.35)
+                }
+                // Si placeName == "" : échec définitif, on n'affiche rien
+                // après l'icône (ligne reste mais vide). On peut aussi la
+                // cacher — ici on garde l'icône comme repère visuel discret.
+            }
+            .foregroundColor(.secondary)
+        }
+    }
+
+    private func startReverseGeocode(for item: SharedItem) {
+        guard let lat = item.latitude, let lon = item.longitude else { return }
+        geocodingIDs.insert(item.id)
+        let id = item.id
+        let loc = CLLocation(latitude: lat, longitude: lon)
+        Task.detached(priority: .utility) {
+            let geocoder = CLGeocoder()
+            let placemarks = try? await geocoder.reverseGeocodeLocation(loc)
+            let name: String = {
+                guard let p = placemarks?.first else { return "" }
+                // Priorité : ville, sinon sous-localité, sinon nom, sinon région.
+                if let locality = p.locality, !locality.isEmpty {
+                    if let country = p.country, !country.isEmpty {
+                        return "\(locality), \(country)"
+                    }
+                    return locality
+                }
+                if let sub = p.subLocality, !sub.isEmpty { return sub }
+                if let n = p.name, !n.isEmpty { return n }
+                if let admin = p.administrativeArea, !admin.isEmpty { return admin }
+                return ""
+            }()
+            await MainActor.run {
+                geocodingIDs.remove(id)
+                updateItemPlaceName(id: id, to: name)
+            }
+        }
+    }
+
+    private func updateItemPlaceName(id: String, to place: String) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        items[idx].placeName = place
+        saveItems()
     }
 
     /// Renvoie la première ligne d'un texte, suffixée par "…" si le texte
@@ -849,8 +1284,14 @@ struct ContentView: View {
                     fetchingDateIDs.remove(id)
                     if let maybeDate {
                         updateItemModifiedAt(id: id, to: maybeDate)
+                    } else if let item = items.first(where: { $0.id == id }),
+                              item.modifiedAt == nil {
+                        // Échec + aucune valeur antérieure : on évite un
+                        // placeholder clignotant permanent en retombant sur
+                        // la date de partage (comme `startFetchLastModified`).
+                        updateItemModifiedAt(id: id, to: Date(timeIntervalSince1970: item.timestamp))
                     }
-                    // Échec → on laisse l'ancienne valeur (modifiedAt inchangé)
+                    // Sinon (échec avec ancienne valeur) : on conserve.
                 }
             }
         }
@@ -996,6 +1437,106 @@ extension Array {
     func chunked(into size: Int) -> [[Element]] {
         stride(from: 0, to: count, by: size).map {
             Array(self[$0..<Swift.min($0 + size, count)])
+        }
+    }
+}
+
+/// Job de traduction d'un titre d'item (labels Vision anglais → langue user).
+struct LabelTranslationJob: Identifiable, Equatable {
+    let id: String   // ID du SharedItem ciblé
+    let sourceText: String
+}
+
+#if canImport(Translation)
+/// Host invisible (iOS 18+) qui draine la file `pending` via le framework
+/// Translation d'Apple : traduction on-device de l'anglais vers la langue
+/// de l'appareil. Appelle `onTranslated` pour chaque item.
+@available(iOS 18.0, *)
+struct LabelTranslator: View {
+    @Binding var pending: [LabelTranslationJob]
+    let onTranslated: (_ id: String, _ translated: String) -> Void
+
+    @State private var config: TranslationSession.Configuration? = nil
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onAppear { ensureConfig() }
+            .onChange(of: pending.count) { _, newCount in
+                if newCount > 0 { ensureConfig() }
+            }
+            .translationTask(config) { session in
+                await drain(session: session)
+            }
+    }
+
+    private func ensureConfig() {
+        if config == nil {
+            config = TranslationSession.Configuration(
+                source: Locale.Language(identifier: "en"),
+                target: Locale.current.language
+            )
+        } else {
+            // Forcer la relance de .translationTask en ré-instanciant
+            config = TranslationSession.Configuration(
+                source: Locale.Language(identifier: "en"),
+                target: Locale.current.language
+            )
+        }
+    }
+
+    private func drain(session: TranslationSession) async {
+        while !pending.isEmpty {
+            let job = pending.removeFirst()
+            do {
+                let response = try await session.translate(job.sourceText)
+                await MainActor.run {
+                    onTranslated(job.id, response.targetText)
+                }
+            } catch {
+                print("Translation error: \(error.localizedDescription)")
+            }
+        }
+    }
+}
+#endif
+
+/// Feuille modale pour éditer le titre (première ligne affichée) d'un item.
+struct EditTitleView: View {
+    let initialTitle: String
+    let onSave: (String) -> Void
+
+    @State private var text: String = ""
+    @FocusState private var focused: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            Form {
+                TextField("Title", text: $text, axis: .vertical)
+                    .lineLimit(1...4)
+                    .focused($focused)
+            }
+            .navigationTitle("Edit title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel", role: .cancel) { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        onSave(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+            .onAppear {
+                text = initialTitle
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    focused = true
+                }
+            }
         }
     }
 }

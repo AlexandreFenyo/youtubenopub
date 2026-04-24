@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "Simuliraj nasumična kašnjenja pri dohvatu datuma";
 "Debug" = "Otklanjanje pogrešaka";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Kada je omogućeno, svaki dohvat datuma kasni za nasumično trajanje između 0 i dvostrukog vremenskog ograničenja. Ako nasumično kašnjenje premaši ograničenje, dohvat se prekida kao pri isteku vremena.";
+"Image description" = "Opis slike";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "Kada je omogućeno, dijeljene slike se šalju odabranoj AI usluzi kako bi se generirao detaljan tekstualni opis koji se koristi kao naslov slike.";
+"Describe shared images with AI" = "Opiši dijeljene slike pomoću AI";
+"AI provider" = "AI pružatelj";
+"API key" = "API ključ";
+"Custom model (optional)" = "Prilagođeni model (neobavezno)";

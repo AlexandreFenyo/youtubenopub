@@ -1,3 +1,9 @@
 "Simulate random date fetch delays" = "తేదీ పొందడంలో యాదృచ్ఛిక జాప్యాన్ని అనుకరించండి";
 "Debug" = "డీబగ్";
 "When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "ప్రారంభించబడినప్పుడు, ప్రతి తేదీ పొందడం 0 మరియు టైంఔట్ యొక్క రెట్టింపు మధ్య యాదృచ్ఛిక వ్యవధి పాటు ఆలస్యమవుతుంది. యాదృచ్ఛిక జాప్యం టైంఔట్‌ను మించితే, టైంఔట్ జరిగినట్లే పొందడం రద్దు చేయబడుతుంది.";
+"Image description" = "చిత్ర వివరణ";
+"When enabled, shared images are sent to the chosen AI service to generate a detailed textual description used as the image's title." = "ప్రారంభించబడినప్పుడు, షేర్ చేసిన చిత్రాలు చిత్ర శీర్షికగా ఉపయోగించే వివరణాత్మక టెక్స్ట్ వివరణను రూపొందించడానికి ఎంచుకున్న AI సేవకు పంపబడతాయి.";
+"Describe shared images with AI" = "షేర్ చేసిన చిత్రాలను AI తో వివరించండి";
+"AI provider" = "AI ప్రదాత";
+"API key" = "API కీ";
+"Custom model (optional)" = "అనుకూల మోడల్ (ఐచ్ఛికం)";
