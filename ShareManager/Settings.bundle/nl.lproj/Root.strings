@@ -1,0 +1,3 @@
+"Simulate random date fetch delays" = "Willekeurige vertraging bij ophalen van datums simuleren";
+"Debug" = "Foutopsporing";
+"When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Indien ingeschakeld wordt elke datumophaal vertraagd met een willekeurige duur tussen 0 en het dubbele van de time-out. Als de willekeurige vertraging de time-out overschrijdt, wordt de ophaalactie geannuleerd alsof er een time-out optrad.";

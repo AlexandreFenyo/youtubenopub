@@ -1,0 +1,3 @@
+"Simulate random date fetch delays" = "Giả lập độ trễ ngẫu nhiên khi lấy ngày";
+"Debug" = "Gỡ lỗi";
+"When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Khi bật, mỗi lần lấy ngày sẽ bị trì hoãn một khoảng thời gian ngẫu nhiên từ 0 đến hai lần thời gian chờ. Nếu độ trễ ngẫu nhiên vượt quá thời gian chờ, quá trình lấy sẽ bị hủy như khi hết thời gian chờ thực sự.";

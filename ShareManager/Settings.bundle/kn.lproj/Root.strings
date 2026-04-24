@@ -1,0 +1,3 @@
+"Simulate random date fetch delays" = "ದಿನಾಂಕ ಪಡೆಯುವಿಕೆಯಲ್ಲಿ ಯಾದೃಚ್ಛಿಕ ವಿಳಂಬವನ್ನು ಅನುಕರಿಸಿ";
+"Debug" = "ಡೀಬಗ್";
+"When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "ಸಕ್ರಿಯಗೊಳಿಸಿದಾಗ, ಪ್ರತಿ ದಿನಾಂಕ ಪಡೆಯುವಿಕೆಯು 0 ಮತ್ತು ಟೈಮ್‌ಔಟ್‌ನ ಎರಡರಷ್ಟು ಯಾದೃಚ್ಛಿಕ ಅವಧಿಯಷ್ಟು ವಿಳಂಬವಾಗುತ್ತದೆ. ಯಾದೃಚ್ಛಿಕ ವಿಳಂಬವು ಟೈಮ್‌ಔಟ್ ಮೀರಿದರೆ, ಟೈಮ್‌ಔಟ್ ಆದಂತೆ ಪಡೆಯುವಿಕೆ ರದ್ದಾಗುತ್ತದೆ.";

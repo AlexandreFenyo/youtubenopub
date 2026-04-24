@@ -1,0 +1,3 @@
+"Simulate random date fetch delays" = "তারিখ আনার সময় এলোমেলো বিলম্ব অনুকরণ করুন";
+"Debug" = "ডিবাগ";
+"When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "সক্রিয় থাকলে, প্রতিটি তারিখ আনা 0 থেকে টাইমআউটের দ্বিগুণ পর্যন্ত এলোমেলো সময়ের জন্য বিলম্বিত হয়। যদি এলোমেলো বিলম্ব টাইমআউট অতিক্রম করে, তাহলে আনা টাইমআউটের মতো বাতিল হয়।";

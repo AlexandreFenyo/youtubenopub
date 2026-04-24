@@ -1,0 +1,3 @@
+"Simulate random date fetch delays" = "הדמה השהיות אקראיות באחזור תאריכים";
+"Debug" = "איתור באגים";
+"When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "כאשר מופעל, כל אחזור תאריך מתעכב במשך זמן אקראי בין 0 לפעמיים הפסק הזמן. אם ההשהיה האקראית חורגת מפסק הזמן, האחזור מתבטל כאילו פג הזמן.";

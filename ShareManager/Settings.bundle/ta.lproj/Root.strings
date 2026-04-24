@@ -1,0 +1,3 @@
+"Simulate random date fetch delays" = "தேதி பெறுவதில் சீரற்ற தாமதங்களை உருவகப்படுத்தவும்";
+"Debug" = "பிழைத்திருத்தம்";
+"When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "இயக்கப்படும் போது, ஒவ்வொரு தேதி பெறுதலும் 0 முதல் காலக்கெடுவின் இரு மடங்கு வரை சீரற்ற கால அளவிற்கு தாமதிக்கப்படும். சீரற்ற தாமதம் காலக்கெடுவை மீறினால், உண்மையான காலக்கெடுவைப் போல பெறுதல் கைவிடப்படும்.";

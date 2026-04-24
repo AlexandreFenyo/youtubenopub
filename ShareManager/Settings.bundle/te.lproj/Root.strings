@@ -1,0 +1,3 @@
+"Simulate random date fetch delays" = "తేదీ పొందడంలో యాదృచ్ఛిక జాప్యాన్ని అనుకరించండి";
+"Debug" = "డీబగ్";
+"When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "ప్రారంభించబడినప్పుడు, ప్రతి తేదీ పొందడం 0 మరియు టైంఔట్ యొక్క రెట్టింపు మధ్య యాదృచ్ఛిక వ్యవధి పాటు ఆలస్యమవుతుంది. యాదృచ్ఛిక జాప్యం టైంఔట్‌ను మించితే, టైంఔట్ జరిగినట్లే పొందడం రద్దు చేయబడుతుంది.";

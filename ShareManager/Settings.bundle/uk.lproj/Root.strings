@@ -1,0 +1,3 @@
+"Simulate random date fetch delays" = "Імітувати випадкові затримки отримання дат";
+"Debug" = "Налагодження";
+"When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Коли ввімкнено, кожне отримання дати затримується на випадковий час від 0 до подвоєного тайм-ауту. Якщо випадкова затримка перевищує тайм-аут, отримання скасовується, наче стався справжній тайм-аут.";

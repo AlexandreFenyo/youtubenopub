@@ -1,45 +1,91 @@
 import UIKit
 import UniformTypeIdentifiers
+import os.log
 
 class ShareViewController: UIViewController {
 
     let appGroup = "group.net.fenyo.apple.sharemanager"
+    private let logger = Logger(subsystem: "net.fenyo.apple.sharemanager", category: "ShareExtension")
+    
+    // MARK: - Debug Configuration
+    
+    private var isDebugEnabled: Bool {
+        let defaults = UserDefaults(suiteName: appGroup)
+        return defaults?.bool(forKey: "debugLogsEnabled") ?? false
+    }
+    
+    // MARK: - File Logging
+    
+    private func log(_ message: String) {
+        guard isDebugEnabled else { return }
+
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        let logMessage = "[\(timestamp)] \(message)\n"
+
+        // Console de debug Xcode (stdout)
+        print(logMessage, terminator: "")
+
+        // Fichier partagé lu par l'app pour l'affichage dans le popup
+        guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
+            return
+        }
+        let logFileURL = containerURL.appendingPathComponent("extension_debug.log")
+
+        if let data = logMessage.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: logFileURL.path) {
+                if let fileHandle = try? FileHandle(forWritingTo: logFileURL) {
+                    fileHandle.seekToEndOfFile()
+                    fileHandle.write(data)
+                    fileHandle.closeFile()
+                }
+            } else {
+                try? data.write(to: logFileURL, options: .atomic)
+            }
+        }
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.0)
-        print("🎬 ShareViewController viewDidLoad() called")
-        print("   Bundle ID: \(Bundle.main.bundleIdentifier ?? "N/A")")
-        print("   Extension Context: \(extensionContext != nil ? "✅ Available" : "❌ Not available")")
+        
+        log("🎬 ShareViewController viewDidLoad() called")
+        log("   Bundle ID: \(Bundle.main.bundleIdentifier ?? "N/A")")
+        log("   Extension Context: \(extensionContext != nil ? "✅ Available" : "❌ Not available")")
+        log("   Debug Enabled: \(isDebugEnabled)")
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         
-        print("🎬 ShareViewController viewDidAppear() called")
-        print("   Extension Context Available: \(extensionContext != nil)")
+        log("🎬 ShareViewController viewDidAppear() called")
+        log("   Extension Context Available: \(extensionContext != nil)")
         
         // Explorer TOUS les types de données disponibles (pour debugging/découverte)
-        exploreAllDataTypes()
+        if isDebugEnabled {
+            exploreAllDataTypes()
+        }
         
         // Puis extraire et sauvegarder comme d'habitude
         extractAndSaveURL()
     }
 
     private func extractAndSaveURL() {
-        print("\n" + String(repeating: "=", count: 80))
-        print("🚀 SHARE EXTENSION ACTIVATED")
-        print(String(repeating: "=", count: 80))
+        print("\nALEXDEBUG " + String(repeating: "=", count: 80))
+        print("ALEXDEBUG 🚀 SHARE EXTENSION ACTIVATED")
+        print("ALEXDEBUG " + String(repeating: "=", count: 80))
         
+        log("🚀 extractAndSaveURL() called")
+
         guard let extensionContext = extensionContext else {
-            print("❌ No extension context available")
+            print("ALEXDEBUG ❌ No extension context available")
+            log("❌ No extension context available")
             complete()
             return
         }
         
         // ===== INSPECTION COMPLÈTE DE L'EXTENSION CONTEXT =====
-        print("\n📦 EXTENSION CONTEXT INFO:")
-        print("   Input Items Count: \(extensionContext.inputItems.count)")
+        print("\nALEXDEBUG 📦 EXTENSION CONTEXT INFO:")
+        print("ALEXDEBUG    Input Items Count: \(extensionContext.inputItems.count)")
         
         for (index, inputItem) in extensionContext.inputItems.enumerated() {
             print("\n┌─ Input Item #\(index + 1)")
@@ -126,9 +172,27 @@ class ShareViewController: UIViewController {
         // Continuer avec l'extraction normale
         guard let item = extensionContext.inputItems.first as? NSExtensionItem,
               let attachments = item.attachments else {
+            log("❌ No NSExtensionItem or no attachments — completing silently")
             complete()
             return
         }
+        log("📦 Found \(attachments.count) attachment(s) on first input item")
+        
+        // IMPORTANT: Extraire le titre ICI, au bon endroit, avant les closures asynchrones
+        let pageTitle = item.attributedTitle?.string
+        if let pageTitle = pageTitle {
+            print("📌 Page title will be saved: \(pageTitle)")
+            logger.info("📌 PAGE TITLE FOUND: \(pageTitle)")
+        } else {
+            print("⚠️ No page title available")
+            logger.warning("⚠️ NO PAGE TITLE - attributedTitle is nil")
+        }
+        
+        // LOG SUPPLÉMENTAIRE : Afficher TOUTES les propriétés de l'item
+        logger.info("🔍 Item properties:")
+        logger.info("   - attributedTitle: \(String(describing: item.attributedTitle?.string))")
+        logger.info("   - attributedContentText: \(String(describing: item.attributedContentText?.string))")
+        logger.info("   - userInfo keys: \(item.userInfo?.keys.map { String(describing: $0) }.joined(separator: ", ") ?? "none")")
         
         // Récupérer l'app source qui partage le contenu
         let sourceApp = getSourceApplication()
@@ -136,32 +200,91 @@ class ShareViewController: UIViewController {
         for attachment in attachments {
             if attachment.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
                 print("✅ Found URL type identifier")
+                log("🔗 URL branch matched (hasItem public.url). Loading…")
                 attachment.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] data, error in
                     print("\n📥 URL DATA LOADED:")
                     print("   Data Type: \(type(of: data))")
                     print("   Error: \(error?.localizedDescription ?? "None")")
-                    
+                    self?.log("📥 URL loadItem: type=\(type(of: data)) err=\(error?.localizedDescription ?? "none") value=\(String(describing: data))")
+
+                    // Cas fichier : on le copie dans l'App Group pour le
+                    // rendre persistant puis on l'enregistre comme entrée.
+                    if let fileURL = data as? URL, fileURL.isFileURL {
+                        // Lire la date de modification AVANT la copie
+                        // pour ne pas récupérer la date de notre propre copie.
+                        let srcModDate: Double? = {
+                            let didStart = fileURL.startAccessingSecurityScopedResource()
+                            defer { if didStart { fileURL.stopAccessingSecurityScopedResource() } }
+                            if let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+                               let date = attrs[.modificationDate] as? Date {
+                                return date.timeIntervalSince1970
+                            }
+                            return nil
+                        }()
+
+                        guard let copied = self?.copyFileToAppGroup(originalURL: fileURL) else {
+                            self?.log("⚠️ Échec de la copie du fichier dans l'App Group — unsupported.")
+                            DispatchQueue.main.async {
+                                self?.logUnsupportedPayloadAndComplete()
+                            }
+                            return
+                        }
+                        let filename = fileURL.lastPathComponent
+                        let title = (pageTitle?.isEmpty == false) ? pageTitle : filename
+                        let finalSource = sourceApp ?? "Files"
+                        self?.log("📁 File imported: \(copied.lastPathComponent) (from \(fileURL.path)) modDate=\(String(describing: srcModDate))")
+                        self?.save(urlString: copied.absoluteString,
+                                   sourceApp: finalSource,
+                                   pageTitle: title,
+                                   kind: "file",
+                                   modifiedAt: srcModDate)
+                        DispatchQueue.main.async {
+                            self?.showCheckmark(sourceApp: finalSource)
+                        }
+                        return
+                    }
+
                     var urlString: String?
-                    if let url = data as? URL {
+                    if let url = data as? URL, url.scheme == "http" || url.scheme == "https" {
                         urlString = url.absoluteString
                         print("   ✅ URL Object: \(urlString!)")
-                    } else if let str = data as? String, URL(string: str) != nil {
+                    } else if let str = data as? String,
+                              let url = URL(string: str),
+                              url.scheme == "http" || url.scheme == "https" {
                         urlString = str
                         print("   ✅ String URL: \(urlString!)")
                     }
-                    
-                    if let urlString = urlString {
-                        // IMPORTANT: Détecter la source AVANT la transformation
-                        let detectedSource = self?.detectSourceBeforeTransform(urlString) ?? sourceApp
-                        let transformedURL = self?.transform(urlString: urlString) ?? urlString
-                        
-                        print("   📊 URL Processing:")
-                        print("      Original: \(urlString)")
-                        print("      Transformed: \(transformedURL)")
-                        print("      Source: \(detectedSource ?? "Unknown")")
-                        
-                        self?.save(urlString: transformedURL, sourceApp: detectedSource)
-                        
+
+                    guard let urlString = urlString else {
+                        self?.log("⚠️ public.url matched but no http(s) URL extracted — treating as unsupported.")
+                        DispatchQueue.main.async {
+                            self?.logUnsupportedPayloadAndComplete()
+                        }
+                        return
+                    }
+
+                    // IMPORTANT: Détecter la source AVANT la transformation
+                    let detectedSource = self?.detectSourceBeforeTransform(urlString) ?? sourceApp
+                    let transformedURL = self?.transform(urlString: urlString) ?? urlString
+
+                    print("   📊 URL Processing:")
+                    print("      Original: \(urlString)")
+                    print("      Transformed: \(transformedURL)")
+                    print("      Source: \(detectedSource ?? "Unknown")")
+                    print("      Title from attributedTitle: \(pageTitle ?? "None")")
+
+                    if pageTitle == nil || pageTitle!.isEmpty {
+                        print("   🔄 No title from attributedTitle, fetching from original URL...")
+                        self?.fetchTitleFromURL(urlString) { fetchedTitle in
+                            let finalTitle = fetchedTitle ?? pageTitle
+                            print("   📌 Final title to save: \(finalTitle ?? "None")")
+                            self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: finalTitle)
+                            DispatchQueue.main.async {
+                                self?.showCheckmark(sourceApp: detectedSource)
+                            }
+                        }
+                    } else {
+                        self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: pageTitle)
                         DispatchQueue.main.async {
                             self?.showCheckmark(sourceApp: detectedSource)
                         }
@@ -174,29 +297,64 @@ class ShareViewController: UIViewController {
         for attachment in attachments {
             if attachment.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
                 print("✅ Found Plain Text type identifier")
+                log("📝 Plain Text branch matched. Loading…")
                 attachment.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] data, error in
                     print("\n📥 PLAIN TEXT DATA LOADED:")
                     print("   Data Type: \(type(of: data))")
                     print("   Error: \(error?.localizedDescription ?? "None")")
-                    
+                    self?.log("📥 Plain Text loadItem: type=\(type(of: data)) err=\(error?.localizedDescription ?? "none")")
+
+                    guard let str = data as? String else {
+                        self?.log("⚠️ plainText data isn't a String — unsupported.")
+                        DispatchQueue.main.async {
+                            self?.logUnsupportedPayloadAndComplete()
+                        }
+                        return
+                    }
+
+                    // Cas 1 : le texte est une URL http(s) → on reprend le flux URL.
                     var urlString: String?
-                    if let str = data as? String, URL(string: str) != nil {
+                    if let url = URL(string: str),
+                       url.scheme == "http" || url.scheme == "https" {
                         urlString = str
                         print("   ✅ Text contains URL: \(urlString!)")
                     }
-                    
-                    if let urlString = urlString {
-                        // IMPORTANT: Détecter la source AVANT la transformation
-                        let detectedSource = self?.detectSourceBeforeTransform(urlString) ?? sourceApp
-                        let transformedURL = self?.transform(urlString: urlString) ?? urlString
-                        
-                        print("   📊 URL Processing:")
-                        print("      Original: \(urlString)")
-                        print("      Transformed: \(transformedURL)")
-                        print("      Source: \(detectedSource ?? "Unknown")")
-                        
-                        self?.save(urlString: transformedURL, sourceApp: detectedSource)
-                        
+
+                    // Cas 2 : texte sans URL web → on sauve en tant que texte.
+                    guard let urlString = urlString else {
+                        let firstLine = str.split(whereSeparator: { $0.isNewline }).first.map(String.init) ?? str
+                        let textTitle = (pageTitle?.isEmpty == false) ? pageTitle : String(firstLine.prefix(80))
+                        let finalSource = sourceApp ?? "Text"
+                        self?.log("📝 Saving text content (\(str.count) chars)")
+                        self?.save(urlString: str, sourceApp: finalSource, pageTitle: textTitle, kind: "text")
+                        DispatchQueue.main.async {
+                            self?.showCheckmark(sourceApp: finalSource)
+                        }
+                        return
+                    }
+
+                    // IMPORTANT: Détecter la source AVANT la transformation
+                    let detectedSource = self?.detectSourceBeforeTransform(urlString) ?? sourceApp
+                    let transformedURL = self?.transform(urlString: urlString) ?? urlString
+
+                    print("   📊 URL Processing:")
+                    print("      Original: \(urlString)")
+                    print("      Transformed: \(transformedURL)")
+                    print("      Source: \(detectedSource ?? "Unknown")")
+                    print("      Title from attributedTitle: \(pageTitle ?? "None")")
+
+                    if pageTitle == nil || pageTitle!.isEmpty {
+                        print("   🔄 No title from attributedTitle, fetching from original URL...")
+                        self?.fetchTitleFromURL(urlString) { fetchedTitle in
+                            let finalTitle = fetchedTitle ?? pageTitle
+                            print("   📌 Final title to save: \(finalTitle ?? "None")")
+                            self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: finalTitle)
+                            DispatchQueue.main.async {
+                                self?.showCheckmark(sourceApp: detectedSource)
+                            }
+                        }
+                    } else {
+                        self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: pageTitle)
                         DispatchQueue.main.async {
                             self?.showCheckmark(sourceApp: detectedSource)
                         }
@@ -207,7 +365,150 @@ class ShareViewController: UIViewController {
         }
 
         print("⚠️  No URL or Plain Text found in attachments")
-        complete()
+        log("⚠️ No URL or Plain Text attachment found — dumping payload details")
+        logUnsupportedPayloadAndComplete()
+    }
+
+    /// Aucun type pris en charge n'a été trouvé : on capture TOUT ce qu'on
+    /// peut sur l'extension item (titres, userInfo, attachments, UTI déclarés,
+    /// aperçu du contenu chargé par type) dans le log fichier lu par l'app.
+    /// Utile pour découvrir quelles apps partagent quoi, et ajouter ensuite
+    /// le support du type correspondant.
+    private func logUnsupportedPayloadAndComplete() {
+        // Affiche l'indicateur visuel « non supporté » avec le même timing
+        // que showCheckmark. complete() sera appelé par showUnsupported
+        // après son fondu de sortie.
+        DispatchQueue.main.async { [weak self] in
+            self?.showUnsupported()
+        }
+
+        guard isDebugEnabled else { return }
+
+        log("⚠️ Aucun type supporté par le code — capture du payload :")
+        let items = (extensionContext?.inputItems as? [NSExtensionItem]) ?? []
+        log("   inputItems.count = \(items.count)")
+
+        for (itemIdx, item) in items.enumerated() {
+            log("   ── Item #\(itemIdx) ──")
+            log("     attributedTitle: \(item.attributedTitle?.string ?? "nil")")
+            log("     attributedContentText: \(item.attributedContentText?.string ?? "nil")")
+            if let userInfo = item.userInfo, !userInfo.isEmpty {
+                log("     userInfo (\(userInfo.count) entries):")
+                for (k, v) in userInfo {
+                    log("       [\(k)] = \(v)")
+                }
+            } else {
+                log("     userInfo: nil/empty")
+            }
+
+            let attachments = item.attachments ?? []
+            log("     attachments.count = \(attachments.count)")
+
+            for (attIdx, att) in attachments.enumerated() {
+                log("     · Attachment #\(attIdx)")
+                log("         suggestedName: \(att.suggestedName ?? "nil")")
+                log("         registeredTypeIdentifiers: \(att.registeredTypeIdentifiers)")
+
+                for typeId in att.registeredTypeIdentifiers {
+                    att.loadItem(forTypeIdentifier: typeId, options: nil) { [weak self] data, error in
+                        DispatchQueue.main.async {
+                            self?.logLoadedPreview(typeIdentifier: typeId, data: data, error: error)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Affiche un indicateur visuel « contenu non supporté » pendant ~1 s
+    /// puis appelle complete(). Même rythme que showCheckmark(sourceApp:).
+    private func showUnsupported() {
+        let container = UIView()
+        container.backgroundColor = UIColor.systemBackground
+        container.layer.cornerRadius = 20
+        container.layer.shadowColor = UIColor.black.cgColor
+        container.layer.shadowOpacity = 0.15
+        container.layer.shadowRadius = 12
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let imageView = UIImageView(image: UIImage(systemName: "exclamationmark.triangle.fill"))
+        imageView.tintColor = .systemOrange
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+
+        let label = UILabel()
+        label.text = NSLocalizedString("Unsupported content", comment: "")
+        label.font = .systemFont(ofSize: 15, weight: .medium)
+        label.textColor = .label
+        label.numberOfLines = 2
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addSubview(imageView)
+        container.addSubview(label)
+        view.addSubview(container)
+
+        NSLayoutConstraint.activate([
+            container.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            container.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            container.widthAnchor.constraint(equalToConstant: 240),
+            container.heightAnchor.constraint(equalToConstant: 120),
+
+            imageView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            imageView.topAnchor.constraint(equalTo: container.topAnchor, constant: 18),
+            imageView.widthAnchor.constraint(equalToConstant: 36),
+            imageView.heightAnchor.constraint(equalToConstant: 36),
+
+            label.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            label.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 10),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+        ])
+
+        container.alpha = 0
+        UIView.animate(withDuration: 0.2) {
+            container.alpha = 1
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            UIView.animate(withDuration: 0.2, animations: {
+                container.alpha = 0
+            }) { _ in
+                self?.complete()
+            }
+        }
+    }
+
+    private func logLoadedPreview(typeIdentifier: String, data: Any?, error: Error?) {
+        if let error = error {
+            log("         [\(typeIdentifier)] erreur: \(error.localizedDescription)")
+            return
+        }
+        guard let data = data else {
+            log("         [\(typeIdentifier)] data = nil")
+            return
+        }
+        let typeStr = String(describing: type(of: data))
+        switch data {
+        case let url as URL:
+            log("         [\(typeIdentifier)] URL (\(typeStr)): \(url.absoluteString)")
+        case let str as String:
+            let preview = String(str.prefix(300))
+            log("         [\(typeIdentifier)] String (\(typeStr), len=\(str.count)): \(preview)")
+        case let d as Data:
+            let hex = d.prefix(32).map { String(format: "%02x", $0) }.joined()
+            if let s = String(data: d.prefix(300), encoding: .utf8) {
+                log("         [\(typeIdentifier)] Data (\(d.count) bytes, utf8): \(s)")
+            } else {
+                log("         [\(typeIdentifier)] Data (\(d.count) bytes, hex head): \(hex)")
+            }
+        case let image as UIImage:
+            log("         [\(typeIdentifier)] UIImage size=\(image.size) scale=\(image.scale)")
+        case let attr as NSAttributedString:
+            log("         [\(typeIdentifier)] AttributedString (len=\(attr.length)): \(attr.string.prefix(300))")
+        default:
+            log("         [\(typeIdentifier)] \(typeStr): \(String(describing: data).prefix(300))")
+        }
     }
     
     /// Détecte la source AVANT toute transformation de l'URL
@@ -426,35 +727,173 @@ class ShareViewController: UIViewController {
         }
         return urlString
     }
-
-    private func save(urlString: String, sourceApp: String?) {
-        guard let defaults = UserDefaults(suiteName: appGroup) else { return }
-        var urls = defaults.stringArray(forKey: "sharedURLs") ?? []
-        if !urls.contains(urlString) {
-            urls.insert(urlString, at: 0)
+    
+    /// Récupère le titre d'une page web depuis son URL
+    private func fetchTitleFromURL(_ urlString: String, completion: @escaping (String?) -> Void) {
+        guard let url = URL(string: urlString) else {
+            print("   ❌ Invalid URL for title fetching")
+            completion(nil)
+            return
         }
-        defaults.set(urls, forKey: "sharedURLs")
         
-        // Déterminer la source avec plusieurs méthodes
+        // Pour YouTube, utiliser l'API oEmbed qui est plus fiable
+        if urlString.contains("youtube.com") || urlString.contains("youtu.be") {
+            fetchYouTubeTitleFromOEmbed(urlString, completion: completion)
+            return
+        }
+        
+        print("   🌐 Fetching title from: \(urlString)")
+        logger.info("🌐 Fetching title from original URL: \(urlString)")
+        
+        let task = URLSession.shared.dataTask(with: url) { data, response, error in
+            if let error = error {
+                print("   ❌ Error fetching title: \(error.localizedDescription)")
+                self.logger.error("❌ Error fetching title: \(error.localizedDescription)")
+                completion(nil)
+                return
+            }
+            
+            guard let data = data,
+                  let html = String(data: data, encoding: .utf8) else {
+                print("   ❌ Could not decode HTML")
+                self.logger.error("❌ Could not decode HTML data")
+                completion(nil)
+                return
+            }
+            
+            // Extraire le titre avec regex
+            if let match = html.range(of: "<title[^>]*>([^<]+)</title>", options: .regularExpression) {
+                let tag = html[match]
+                if let start = tag.firstIndex(of: ">"),
+                   let end = tag.range(of: "</title>") {
+                    let title = tag[tag.index(after: start)..<end.lowerBound]
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    
+                    if !title.isEmpty {
+                        print("   ✅ Title fetched from HTML: \(title)")
+                        self.logger.info("✅ Title fetched from HTML: \(title)")
+                        completion(String(title))
+                        return
+                    }
+                }
+            }
+            
+            print("   ⚠️ No title found in HTML")
+            self.logger.warning("⚠️ No <title> tag found in HTML")
+            completion(nil)
+        }
+        
+        task.resume()
+    }
+    
+    /// Récupère le titre d'une vidéo YouTube via l'API oEmbed
+    private func fetchYouTubeTitleFromOEmbed(_ urlString: String, completion: @escaping (String?) -> Void) {
+        // Construire l'URL oEmbed
+        let encodedURL = urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? urlString
+        let oembedURLString = "https://www.youtube.com/oembed?url=\(encodedURL)&format=json"
+        
+        guard let oembedURL = URL(string: oembedURLString) else {
+            print("   ❌ Invalid oEmbed URL")
+            completion(nil)
+            return
+        }
+        
+        print("   🎬 Fetching YouTube title from oEmbed API...")
+        logger.info("🎬 Fetching YouTube title from oEmbed: \(oembedURLString)")
+        
+        let task = URLSession.shared.dataTask(with: oembedURL) { data, response, error in
+            if let error = error {
+                print("   ❌ Error fetching from oEmbed: \(error.localizedDescription)")
+                self.logger.error("❌ oEmbed error: \(error.localizedDescription)")
+                completion(nil)
+                return
+            }
+            
+            guard let data = data else {
+                print("   ❌ No data from oEmbed")
+                completion(nil)
+                return
+            }
+            
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                   let title = json["title"] as? String {
+                    print("   ✅ YouTube title from oEmbed: \(title)")
+                    self.logger.info("✅ YouTube title from oEmbed: \(title)")
+                    completion(title)
+                } else {
+                    print("   ⚠️ No title in oEmbed response")
+                    self.logger.warning("⚠️ No title field in oEmbed JSON")
+                    completion(nil)
+                }
+            } catch {
+                print("   ❌ Error parsing oEmbed JSON: \(error.localizedDescription)")
+                self.logger.error("❌ JSON parse error: \(error.localizedDescription)")
+                completion(nil)
+            }
+        }
+        
+        task.resume()
+    }
+
+    private func save(urlString: String, sourceApp: String?, pageTitle: String?, kind: String = "url", modifiedAt: Double? = nil) {
+        guard let defaults = UserDefaults(suiteName: appGroup) else {
+            print("❌ ERROR: Cannot access UserDefaults for app group: \(appGroup)")
+            print("   Make sure App Groups capability is enabled in both targets!")
+            return
+        }
+
         let finalSource: String
         if let sourceApp = sourceApp {
-            // Méthode 1 : Détection directe via iOS (rare)
             finalSource = sourceApp
-            print("✅ URL saved from (detected): \(sourceApp)")
-        } else if let fromParams = analyzeURLParameters(urlString) {
-            // Méthode 2 : Analyse des paramètres d'URL (très fiable)
+        } else if kind == "url", let fromParams = analyzeURLParameters(urlString) {
             finalSource = fromParams
-            print("🔍 URL saved from (params): \(fromParams)")
-        } else {
-            // Méthode 3 : Deviner depuis le domaine (fallback)
+        } else if kind == "url" {
             finalSource = guessSourceFromURL(urlString)
-            print("🔍 URL saved from (guessed): \(finalSource)")
+        } else {
+            finalSource = "Share"
         }
-        
-        // Sauvegarder l'app source
-        var sourceApps = defaults.dictionary(forKey: "sourceApps") as? [String: String] ?? [:]
-        sourceApps[urlString] = finalSource
-        defaults.set(sourceApps, forKey: "sourceApps")
+
+        // Charger la liste d'items existante (format JSON).
+        var items: [[String: Any]] = []
+        if let data = defaults.data(forKey: "items"),
+           let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            items = arr
+        }
+
+        let now = Date().timeIntervalSince1970
+        var newItem: [String: Any] = [
+            "id": UUID().uuidString,
+            "url": urlString,
+            "sourceApp": finalSource,
+            "folder": "Default",
+            "timestamp": now,
+            "kind": kind,
+        ]
+        if let title = pageTitle, !title.isEmpty {
+            newItem["title"] = title
+        }
+        // Pour les fichiers, si on a réussi à lire la date, on l'utilise,
+        // sinon on tombe sur "now" pour éviter l'absence de date.
+        // Pour les textes, c'est systématiquement "now".
+        // Pour les URLs, modifiedAt reste absent — l'app ira le chercher.
+        if kind == "file" {
+            newItem["modifiedAt"] = modifiedAt ?? now
+        } else if kind == "text" {
+            newItem["modifiedAt"] = now
+        }
+
+        items.insert(newItem, at: 0)
+
+        if let data = try? JSONSerialization.data(withJSONObject: items) {
+            defaults.set(data, forKey: "items")
+            defaults.synchronize()
+            print("✅ Item saved (kind=\(kind)) in folder Default")
+            logger.info("✅ Item saved (kind=\(kind))")
+        } else {
+            print("❌ Failed to serialize items array")
+            logger.error("❌ Failed to serialize items array")
+        }
     }
     
     /// Analyse les paramètres d'URL pour identifier l'app source
@@ -604,6 +1043,54 @@ class ShareViewController: UIViewController {
         print("\n✅ Share Extension completing...")
         print(String(repeating: "=", count: 80) + "\n")
         extensionContext?.completeRequest(returningItems: nil)
+    }
+
+    /// Copie un fichier fourni par une app source (souvent via File Provider)
+    /// dans le conteneur de l'App Group afin qu'il survive à la fermeture de
+    /// l'extension et puisse être rouvert plus tard par l'app principale.
+    /// Le nom de destination est préfixé d'un timestamp pour éviter les
+    /// collisions tout en préservant l'extension d'origine.
+    private func copyFileToAppGroup(originalURL: URL) -> URL? {
+        guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
+            log("❌ copyFileToAppGroup: containerURL introuvable")
+            return nil
+        }
+        let dir = containerURL.appendingPathComponent("SharedFiles", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        } catch {
+            log("❌ copyFileToAppGroup: createDirectory échec: \(error.localizedDescription)")
+            return nil
+        }
+
+        let didStart = originalURL.startAccessingSecurityScopedResource()
+        defer { if didStart { originalURL.stopAccessingSecurityScopedResource() } }
+
+        let ts = Int(Date().timeIntervalSince1970 * 1000)
+        let name = originalURL.lastPathComponent
+        let destName = "\(ts)_\(name)"
+        let destURL = dir.appendingPathComponent(destName)
+
+        do {
+            if FileManager.default.fileExists(atPath: destURL.path) {
+                try FileManager.default.removeItem(at: destURL)
+            }
+            try FileManager.default.copyItem(at: originalURL, to: destURL)
+            return destURL
+        } catch {
+            log("❌ copyFileToAppGroup: copyItem échec: \(error.localizedDescription)")
+            // Fallback: lire puis écrire (utile si la copie directe échoue
+            // à cause d'un accès sandbox particulier).
+            if let data = try? Data(contentsOf: originalURL) {
+                do {
+                    try data.write(to: destURL, options: .atomic)
+                    return destURL
+                } catch {
+                    log("❌ copyFileToAppGroup: write fallback échec: \(error.localizedDescription)")
+                }
+            }
+            return nil
+        }
     }
     
     // MARK: - Advanced Data Type Discovery

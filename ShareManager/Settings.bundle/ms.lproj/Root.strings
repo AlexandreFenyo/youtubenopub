@@ -1,0 +1,3 @@
+"Simulate random date fetch delays" = "Simulasi kelewatan rawak semasa mendapatkan tarikh";
+"Debug" = "Nyahpepijat";
+"When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Apabila didayakan, setiap pengambilan tarikh dilewatkan selama tempoh rawak antara 0 dan dua kali tamat masa. Jika kelewatan rawak melebihi tamat masa, pengambilan dibatalkan seperti tamat masa sebenar.";

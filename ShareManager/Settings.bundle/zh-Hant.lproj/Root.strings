@@ -1,0 +1,3 @@
+"Simulate random date fetch delays" = "模擬取得日期的隨機延遲";
+"Debug" = "除錯";
+"When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "啟用後，每次取得日期都會被隨機延遲 0 到兩倍逾時時間之間。如果隨機延遲超過逾時時間，取得將被中止，如同發生逾時。";

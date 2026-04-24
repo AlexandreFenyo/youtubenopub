@@ -1,0 +1,3 @@
+"Simulate random date fetch delays" = "Véletlenszerű dátumlekérési késleltetés szimulálása";
+"Debug" = "Hibakeresés";
+"When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Ha engedélyezve van, minden dátumlekérés véletlenszerű időtartammal késik, 0 és az időkorlát kétszerese között. Ha a véletlen késleltetés meghaladja az időkorlátot, a lekérés úgy szakad meg, mintha időtúllépés történt volna.";

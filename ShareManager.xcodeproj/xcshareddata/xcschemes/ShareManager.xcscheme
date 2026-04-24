@@ -15,7 +15,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "9CB5F3BD848E74E08807BDAB"
+               BlueprintIdentifier = "416B527457A2734EE6CEE903"
                BuildableName = "ShareExtension.appex"
                BlueprintName = "ShareExtension"
                ReferencedContainer = "container:ShareManager.xcodeproj">
@@ -29,7 +29,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "23AE1EFDC623EC03807AAC1A"
+               BlueprintIdentifier = "97A3DFB00E90EFF9ADB862AB"
                BuildableName = "ShareManager.app"
                BlueprintName = "ShareManager"
                ReferencedContainer = "container:ShareManager.xcodeproj">
@@ -46,7 +46,7 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "23AE1EFDC623EC03807AAC1A"
+            BlueprintIdentifier = "97A3DFB00E90EFF9ADB862AB"
             BuildableName = "ShareManager.app"
             BlueprintName = "ShareManager"
             ReferencedContainer = "container:ShareManager.xcodeproj">
@@ -69,7 +69,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "23AE1EFDC623EC03807AAC1A"
+            BlueprintIdentifier = "97A3DFB00E90EFF9ADB862AB"
             BuildableName = "ShareManager.app"
             BlueprintName = "ShareManager"
             ReferencedContainer = "container:ShareManager.xcodeproj">
@@ -88,7 +88,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "23AE1EFDC623EC03807AAC1A"
+            BlueprintIdentifier = "97A3DFB00E90EFF9ADB862AB"
             BuildableName = "ShareManager.app"
             BlueprintName = "ShareManager"
             ReferencedContainer = "container:ShareManager.xcodeproj">

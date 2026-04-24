@@ -1,0 +1,3 @@
+"Simulate random date fetch delays" = "Simuler des délais aléatoires de récupération des dates";
+"Debug" = "Débogage";
+"When enabled, each date fetch is delayed by a random duration between 0 and twice the timeout. If the random delay exceeds the timeout, the fetch is aborted as if a timeout occurred." = "Quand activée, chaque récupération de date est retardée d'une durée aléatoire comprise entre 0 et le double du délai d'attente. Si le délai aléatoire dépasse le délai d'attente, la récupération est abandonnée comme lors d'un vrai timeout.";

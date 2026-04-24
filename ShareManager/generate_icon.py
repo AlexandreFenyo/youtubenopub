@@ -1,121 +1,170 @@
 #!/usr/bin/env python3
 """
-Script pour générer l'icône de l'application
+Script pour générer l'icône de l'application ShareManager.
+Dessine l'icône "partager" classique d'iOS (carré ouvert + flèche vers le haut)
+sur un fond bleu en dégradé, avec une ombre portée, et une forme dont la
+hauteur a été réduite de 10%.
+
 Nécessite: pip install pillow
 """
 
-from PIL import Image, ImageDraw
-import os
+import math
 
-def create_app_icon():
-    """Crée l'icône de l'application avec un rectangle, une flèche et un dossier"""
-    
-    # Taille de l'icône
-    size = 1024
-    
-    # Créer l'image avec un fond bleu dégradé
+from PIL import Image, ImageDraw, ImageFilter
+
+
+SIZE = 1024
+SCALE = 4       # super-sampling pour lisser les bords
+VSCALE = 0.9    # compression verticale du dessin (hauteur -10%)
+
+
+def draw_share_icon(draw: ImageDraw.ImageDraw, size: int) -> None:
+    """Dessine le glyphe de partage, centré, sur une image de côté `size`.
+    La hauteur du dessin est compressée autour du centre via VSCALE."""
+
+    white = (255, 255, 255, 255)
+    stroke = int(size * 0.065)
+    cx = size / 2
+    cy = size / 2
+
+    def sy(fraction: float) -> float:
+        """Échelle verticale autour du centre."""
+        y = fraction * size
+        return cy + (y - cy) * VSCALE
+
+    # --- Boîte (carré ouvert vers le haut) ---
+    box_width = size * 0.50
+    box_left = cx - box_width / 2
+    box_right = cx + box_width / 2
+    box_top = sy(0.50)
+    box_bottom = sy(0.86)
+
+    # Côté gauche
+    draw.rounded_rectangle(
+        [box_left - stroke / 2, box_top,
+         box_left + stroke / 2, box_bottom + stroke / 2],
+        radius=stroke / 2,
+        fill=white,
+    )
+    # Côté droit
+    draw.rounded_rectangle(
+        [box_right - stroke / 2, box_top,
+         box_right + stroke / 2, box_bottom + stroke / 2],
+        radius=stroke / 2,
+        fill=white,
+    )
+    # Côté bas
+    draw.rounded_rectangle(
+        [box_left - stroke / 2, box_bottom - stroke / 2,
+         box_right + stroke / 2, box_bottom + stroke / 2],
+        radius=stroke / 2,
+        fill=white,
+    )
+    # Pastilles pour adoucir les coins inférieurs
+    draw.ellipse(
+        [box_left - stroke / 2, box_bottom - stroke / 2,
+         box_left + stroke / 2, box_bottom + stroke / 2],
+        fill=white,
+    )
+    draw.ellipse(
+        [box_right - stroke / 2, box_bottom - stroke / 2,
+         box_right + stroke / 2, box_bottom + stroke / 2],
+        fill=white,
+    )
+
+    # --- Flèche verticale vers le haut ---
+    arrow_tip_y = sy(0.10)
+    arrow_bottom = sy(0.66)
+    shaft_half = stroke / 2
+
+    # Pointe en chevron épais (polygone), hauteur compressée par VSCALE
+    head_half_width = size * 0.14
+    head_height = size * 0.17 * VSCALE
+    t = stroke
+
+    dx = head_half_width
+    dy = head_height
+    L = math.sqrt(dx * dx + dy * dy)
+    off_x = t * dy / L
+    off_y = t * dx / L
+    s = off_y / dy
+
+    outer_tip = (cx, arrow_tip_y)
+    outer_bl = (cx - dx, arrow_tip_y + dy)
+    outer_br = (cx + dx, arrow_tip_y + dy)
+    inner_tip_y = arrow_tip_y + t * L / dx
+    inner_tip = (cx, inner_tip_y)
+    inner_bl = (outer_bl[0] + off_x + s * dx, outer_bl[1])
+    inner_br = (outer_br[0] - off_x - s * dx, outer_br[1])
+
+    draw.polygon(
+        [outer_tip, outer_br, inner_br, inner_tip, inner_bl, outer_bl],
+        fill=white,
+    )
+
+    # Tige, du dessous du chevron jusque dans la boîte
+    draw.rounded_rectangle(
+        [cx - shaft_half, inner_tip_y,
+         cx + shaft_half, arrow_bottom],
+        radius=shaft_half,
+        fill=white,
+    )
+
+
+def make_gradient_background(size: int) -> Image.Image:
     img = Image.new('RGB', (size, size))
     draw = ImageDraw.Draw(img)
-    
-    # Dessiner le dégradé bleu
+    top_color = (10, 132, 255)   # bleu iOS clair
+    bot_color = (0, 64, 190)     # bleu profond
     for y in range(size):
-        # Gradient du bleu clair au bleu foncé
-        r = int(0 + (0 * y / size))
-        g = int(122 - (25 * y / size))
-        b = int(255 - (38 * y / size))
+        t = y / (size - 1)
+        r = int(top_color[0] + (bot_color[0] - top_color[0]) * t)
+        g = int(top_color[1] + (bot_color[1] - top_color[1]) * t)
+        b = int(top_color[2] + (bot_color[2] - top_color[2]) * t)
         draw.line([(0, y), (size, y)], fill=(r, g, b))
-    
-    # Rectangle blanc aux bords arrondis (document à partager)
-    rect_width, rect_height = 280, 220
-    rect_x = (size - rect_width) // 2
-    rect_y = 180
-    draw.rounded_rectangle(
-        [(rect_x, rect_y), (rect_x + rect_width, rect_y + rect_height)],
-        radius=28,
-        fill='white'
-    )
-    
-    # Lignes bleues dans le rectangle (simulant du contenu)
-    line_y = rect_y + 60
-    for width in [200, 180, 190, 160]:
-        line_x = (size - width) // 2
-        draw.rounded_rectangle(
-            [(line_x, line_y), (line_x + width, line_y + 12)],
-            radius=4,
-            fill=(100, 150, 255, 180)
-        )
-        line_y += 26
-    
-    # Flèche blanche vers le bas
-    arrow_x = size // 2
-    arrow_y_start = rect_y + rect_height + 20
-    arrow_y_end = arrow_y_start + 80
-    
-    # Tige de la flèche
-    draw.rounded_rectangle(
-        [(arrow_x - 6, arrow_y_start), (arrow_x + 6, arrow_y_end)],
-        radius=5,
-        fill='white'
-    )
-    
-    # Pointe de la flèche (triangle)
-    arrow_tip = [
-        (arrow_x, arrow_y_end + 30),  # Pointe
-        (arrow_x - 35, arrow_y_end),   # Gauche
-        (arrow_x + 35, arrow_y_end)    # Droite
-    ]
-    draw.polygon(arrow_tip, fill='white')
-    
-    # Dossier jaune/orange
-    folder_width, folder_height = 320, 240
-    folder_x = (size - folder_width) // 2
-    folder_y = 650
-    
-    # Onglet du dossier
-    tab_width, tab_height = 140, 45
-    tab_x = folder_x + 20
-    tab_y = folder_y - 20
-    draw.rounded_rectangle(
-        [(tab_x, tab_y), (tab_x + tab_width, tab_y + tab_height)],
-        radius=18,
-        fill=(255, 200, 40)
-    )
-    
-    # Corps du dossier
-    draw.rounded_rectangle(
-        [(folder_x, folder_y), (folder_x + folder_width, folder_y + folder_height)],
-        radius=30,
-        fill=(255, 180, 30)
-    )
-    
-    # Ligne de séparation sur le dossier
-    draw.rounded_rectangle(
-        [(folder_x + 20, folder_y + 25), (folder_x + folder_width - 20, folder_y + 28)],
-        radius=2,
-        fill=(255, 150, 30)
-    )
-    
-    return img
+    return img.convert('RGBA')
 
-def main():
-    """Fonction principale"""
-    print("🎨 Génération de l'icône de l'application...")
-    
-    # Créer l'icône
+
+def make_shadow_layer(shape: Image.Image, size: int) -> Image.Image:
+    """Crée un calque d'ombre portée à partir de la forme (RGBA)."""
+    blur_radius = size * 0.015
+    offset = int(size * 0.012)
+    opacity = 0.45
+
+    alpha = shape.split()[3].filter(ImageFilter.GaussianBlur(radius=blur_radius))
+    alpha = alpha.point(lambda x: int(x * opacity))
+
+    shifted = Image.new('L', (size, size), 0)
+    shifted.paste(alpha, (offset, offset))
+
+    shadow = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    shadow.putalpha(shifted)
+    return shadow
+
+
+def create_app_icon() -> Image.Image:
+    big = SIZE * SCALE
+
+    background = make_gradient_background(big)
+
+    shape = Image.new('RGBA', (big, big), (0, 0, 0, 0))
+    draw_share_icon(ImageDraw.Draw(shape), big)
+
+    shadow = make_shadow_layer(shape, big)
+
+    composed = Image.alpha_composite(background, shadow)
+    composed = Image.alpha_composite(composed, shape)
+
+    return composed.convert('RGB').resize((SIZE, SIZE), Image.LANCZOS)
+
+
+def main() -> None:
+    print("Génération de l'icône de partage...")
     icon = create_app_icon()
-    
-    # Sauvegarder l'icône
     output_path = "AppIcon.png"
     icon.save(output_path, 'PNG', quality=100)
-    
-    print(f"✅ Icône générée avec succès : {output_path}")
-    print(f"   Taille : 1024x1024 pixels")
-    print()
-    print("📋 Prochaines étapes :")
-    print("1. Ouvrez votre projet Xcode")
-    print("2. Naviguez vers Assets.xcassets")
-    print("3. Sélectionnez AppIcon")
-    print("4. Glissez AppIcon.png dans l'emplacement 1024x1024")
+    print(f"Icône générée : {output_path} ({SIZE}x{SIZE})")
+
 
 if __name__ == "__main__":
     main()

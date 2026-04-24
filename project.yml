@@ -2,30 +2,64 @@ name: ShareManager
 options:
   bundleIdPrefix: net.fenyo.apple
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "17.6"
   developmentLanguage: en
   knownRegions:
     - en
-    - fr
-    - es
-    - pt
+    - en-AU
+    - en-CA
+    - en-GB
+    - ar
+    - bn
+    - ca
+    - cs
+    - da
     - de
+    - el
+    - es
+    - es-MX
+    - fi
+    - fr
+    - fr-CA
+    - gu
+    - he
+    - hi
+    - hr
+    - hu
+    - id
     - it
     - ja
+    - kn
+    - ko
+    - ml
+    - mr
+    - ms
+    - nb
+    - nl
+    - or
+    - pa
+    - pl
+    - pt
+    - ro
+    - ru
+    - sk
+    - sl
+    - sv
+    - ta
+    - te
+    - th
+    - tr
+    - uk
+    - ur
+    - vi
     - zh-Hans
     - zh-Hant
-    - ko
-    - ar
-    - ru
-    - hi
-    - nl
-    - pl
 
 targets:
   ShareManager:
     type: application
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "17.6"
     sources:
       - path: ShareManager
     settings:
@@ -44,7 +78,7 @@ targets:
   ShareExtension:
     type: app-extension
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "17.6"
     sources:
       - path: ShareExtension
     settings:
