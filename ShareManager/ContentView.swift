@@ -3,6 +3,7 @@ import WebKit
 import QuickLook
 import CoreLocation
 import Vision
+import UniformTypeIdentifiers
 #if canImport(Translation)
 import Translation
 #endif
@@ -16,7 +17,7 @@ struct SharedItem: Codable, Identifiable, Hashable {
     /// Pour `kind == "url"` : la chaîne URL web.
     /// Pour `kind == "file"` : la chaîne `file://…` du fichier copié.
     /// Pour `kind == "text"` : le texte brut partagé.
-    let url: String
+    var url: String
     var title: String?
     var sourceApp: String?
     var folder: String
@@ -43,6 +44,16 @@ struct SharedItem: Codable, Identifiable, Hashable {
     /// `modifiedAt > lastSeenModifiedAt` (ou que `lastSeenModifiedAt` est nil
     /// et qu'on a déjà une date). S'applique aux URLs uniquement.
     var lastSeenModifiedAt: Double?
+    /// URL telle que partagée par l'utilisateur, avant toute transformation
+    /// (ex. youtube.com → yout-ube.com pour la lecture sans pub). Nil si
+    /// aucune transformation n'a été appliquée. Affichage = `originalURL ?? url`,
+    /// ouverture = `url`.
+    var originalURL: String?
+    /// Note libre saisie par l'utilisateur (édition via menu contextuel).
+    var note: String?
+    /// Vrai si une tentative d'OCR a été effectuée sur la photo (succès
+    /// ou échec). Bloque les retentatives automatiques.
+    var ocrDone: Bool?
 
     var effectiveKind: String {
         if let k = kind { return k }
@@ -51,6 +62,35 @@ struct SharedItem: Codable, Identifiable, Hashable {
             if u.isFileURL { return "file" }
         }
         return "url"
+    }
+}
+
+/// Format d'export/import complet de l'app : items, folders, settings,
+/// et binaires des fichiers/photos/vidéos en base64. Auto-suffisant pour
+/// restaurer l'état sur un autre appareil.
+struct BackupBundle: Codable {
+    let schemaVersion: Int
+    let exportedAt: Double
+    var settings: Settings
+    var folders: [String]
+    var items: [SharedItem]
+    /// Binaires des items file/photo/video, indexés par `SharedItem.id`.
+    var files: [String: FileBlob]
+
+    struct Settings: Codable {
+        var colorSchemePreference: Int
+        var debugLogsEnabled: Bool
+        var describeImagesEnabled: Bool
+        var describeImagesProvider: String
+        var describeImagesAPIKey: String
+        var describeImagesModel: String
+        var simulateDateDelay: Bool
+        var selectedFolder: String
+    }
+
+    struct FileBlob: Codable {
+        let filename: String
+        let base64: String
     }
 }
 
@@ -107,6 +147,59 @@ struct ContentView: View {
     @State private var describingIDs: Set<String> = []
     @State private var editingItem: SharedItem? = nil
     @State private var pendingLabelTranslations: [LabelTranslationJob] = []
+
+    @State private var backupShareURL: URL? = nil
+    @State private var showBackupImporter: Bool = false
+    @State private var pendingImport: BackupBundle? = nil
+    @State private var importErrorMessage: String? = nil
+    @State private var showClearConfirmation: Bool = false
+
+    @State private var searchQuery: String = ""
+    @State private var typeFilter: String = "all"
+    @State private var sortOrder: SortOrder = .insertion
+    @State private var selection: Set<String> = []
+    @State private var showBatchMoveSheet: Bool = false
+    @State private var clipboardCandidate: URL? = nil
+    @State private var clipboardLastChangeCount: Int = 0
+    @State private var editingNoteItem: SharedItem? = nil
+    @State private var smartFolder: SmartFolder? = nil
+
+    enum SortOrder: String, CaseIterable, Identifiable {
+        case insertion, dateNewest, dateOldest, titleAZ, sourceAZ
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .insertion:  return String(localized: "Manual order")
+            case .dateNewest: return String(localized: "Newest first")
+            case .dateOldest: return String(localized: "Oldest first")
+            case .titleAZ:    return String(localized: "Title A→Z")
+            case .sourceAZ:   return String(localized: "Source A→Z")
+            }
+        }
+    }
+
+    enum SmartFolder: String, CaseIterable, Identifiable {
+        case all, recent7days, unreadURLs, withLocation, photosOnly
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .all:          return String(localized: "All items")
+            case .recent7days:  return String(localized: "Recent (7 days)")
+            case .unreadURLs:   return String(localized: "Unread URLs")
+            case .withLocation: return String(localized: "With location")
+            case .photosOnly:   return String(localized: "Photos only")
+            }
+        }
+        var systemImage: String {
+            switch self {
+            case .all:          return "tray.full"
+            case .recent7days:  return "clock.arrow.circlepath"
+            case .unreadURLs:   return "circle.fill"
+            case .withLocation: return "mappin.and.ellipse"
+            case .photosOnly:   return "photo"
+            }
+        }
+    }
     /// Passe à true après le tout premier `loadItems()` afin que l'auto-fetch
     /// ne se déclenche que pour les items apparus APRÈS le démarrage.
     @State private var hasInitialized: Bool = false
@@ -219,6 +312,59 @@ struct ContentView: View {
             }
         }
         .background(labelTranslatorHost)
+        .sheet(item: $backupShareURL) { url in
+            BackupShareSheet(url: url)
+        }
+        .fileImporter(isPresented: $showBackupImporter,
+                      allowedContentTypes: [.json]) { result in
+            switch result {
+            case .success(let url):
+                handlePickedBackup(at: url)
+            case .failure(let err):
+                importErrorMessage = err.localizedDescription
+            }
+        }
+        .alert(
+            "Restore data?",
+            isPresented: Binding(
+                get: { pendingImport != nil },
+                set: { if !$0 { pendingImport = nil } }
+            ),
+            presenting: pendingImport
+        ) { bundle in
+            Button("Replace", role: .destructive) {
+                applyBackup(bundle, mode: .replace)
+                pendingImport = nil
+            }
+            Button("Merge") {
+                applyBackup(bundle, mode: .merge)
+                pendingImport = nil
+            }
+            Button("Cancel", role: .cancel) { pendingImport = nil }
+        } message: { _ in
+            Text("Replace deletes everything before restoring. Merge keeps your current items, folders and settings, and adds the imported ones.")
+        }
+        .alert(
+            "Empty this folder?",
+            isPresented: $showClearConfirmation
+        ) {
+            Button("Empty", role: .destructive) { clearFolder() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("All items in this folder will be permanently deleted.")
+        }
+        .alert(
+            "Could not import backup",
+            isPresented: Binding(
+                get: { importErrorMessage != nil },
+                set: { if !$0 { importErrorMessage = nil } }
+            ),
+            presenting: importErrorMessage
+        ) { _ in
+            Button("OK", role: .cancel) { importErrorMessage = nil }
+        } message: { msg in
+            Text(msg)
+        }
     }
 
     /// Host invisible qui exécute la traduction on-device des labels Vision
@@ -312,7 +458,7 @@ struct ContentView: View {
             if !currentItems.isEmpty {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(role: .destructive) {
-                        clearFolder()
+                        showClearConfirmation = true
                     } label: {
                         Image(systemName: "trash")
                     }
@@ -355,6 +501,19 @@ struct ContentView: View {
                 }
                 Divider()
             }
+            Button {
+                if let url = makeBackupFile() {
+                    backupShareURL = url
+                }
+            } label: {
+                Label("Backup app data", systemImage: "square.and.arrow.up")
+            }
+            Button {
+                showBackupImporter = true
+            } label: {
+                Label("Restore app data", systemImage: "square.and.arrow.down")
+            }
+            Divider()
             Toggle(isOn: $debugLogsEnabled) {
                 Label("Enable Debug Logs", systemImage: "ladybug")
             }
@@ -425,6 +584,15 @@ struct ContentView: View {
                         .fontWeight(.medium)
                         .lineLimit(2)
                 }
+            case "audio":
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform")
+                        .foregroundColor(.teal)
+                    Text(item.title ?? linkURL?.lastPathComponent ?? item.url)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .lineLimit(2)
+                }
             case "text":
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "text.alignleft")
@@ -441,16 +609,18 @@ struct ContentView: View {
                     .truncationMode(.tail)
             default: // "url"
                 let unread = isUnread(item)
+                let displayURL = item.originalURL ?? item.url
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "globe")
-                        .foregroundColor(Color(red: 0, green: 0.45, blue: 0.2))
-                    Text(item.title ?? item.url)
+                        .foregroundColor(.urlAccent)
+                    Text(item.title ?? displayURL)
                         .font(.subheadline)
                         .fontWeight(unread ? .bold : .medium)
+                        .foregroundColor(unread ? .unreadBordeaux : .primary)
                         .lineLimit(2)
                 }
                 if item.title != nil {
-                    Text(item.url)
+                    Text(displayURL)
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .lineLimit(2)
@@ -476,7 +646,7 @@ struct ContentView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             switch kind {
-            case "file", "photo", "video":
+            case "file", "photo", "video", "audio":
                 if let link = linkURL { previewFileURL = link }
             case "text":
                 textToPreview = TextPreviewPayload(text: item.url, title: item.title)
@@ -493,7 +663,7 @@ struct ContentView: View {
             }
             if kind == "url" {
                 Button {
-                    UIPasteboard.general.string = item.url
+                    UIPasteboard.general.string = item.originalURL ?? item.url
                 } label: {
                     Label("Copy URL", systemImage: "doc.on.doc")
                 }
@@ -791,6 +961,184 @@ struct ContentView: View {
     private func removeFileIfLocal(_ urlString: String) {
         guard let url = URL(string: urlString), url.isFileURL else { return }
         try? FileManager.default.removeItem(at: url)
+    }
+
+    // MARK: - Backup / restore
+
+    private func makeBackupFile() -> URL? {
+        let appDefaults = UserDefaults.standard
+        let bundle = BackupBundle(
+            schemaVersion: 1,
+            exportedAt: Date().timeIntervalSince1970,
+            settings: BackupBundle.Settings(
+                colorSchemePreference: colorSchemePreference,
+                debugLogsEnabled: debugLogsEnabled,
+                describeImagesEnabled: appDefaults.bool(forKey: "describeImagesEnabled"),
+                describeImagesProvider: appDefaults.string(forKey: "describeImagesProvider") ?? "apple",
+                // SÉCURITÉ : la clé d'API n'est jamais incluse dans la
+                // sauvegarde (elle reste sur l'appareil source uniquement).
+                describeImagesAPIKey: "",
+                describeImagesModel: appDefaults.string(forKey: "describeImagesModel") ?? "",
+                simulateDateDelay: appDefaults.bool(forKey: "simulateDateDelay"),
+                selectedFolder: selectedFolder ?? StoreKeys.defaultFolder
+            ),
+            folders: folders,
+            items: items,
+            files: collectFileBlobs()
+        )
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
+            let data = try encoder.encode(bundle)
+            let df = DateFormatter()
+            df.dateFormat = "yyyy-MM-dd-HHmmss"
+            let filename = "ShareManager-backup-\(df.string(from: Date())).json"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            print("Backup error: \(error)")
+            return nil
+        }
+    }
+
+    private func collectFileBlobs() -> [String: BackupBundle.FileBlob] {
+        var blobs: [String: BackupBundle.FileBlob] = [:]
+        for item in items {
+            let kind = item.effectiveKind
+            guard kind == "file" || kind == "photo" || kind == "video" || kind == "audio" else { continue }
+            guard let url = URL(string: item.url), url.isFileURL,
+                  let data = try? Data(contentsOf: url) else { continue }
+            blobs[item.id] = BackupBundle.FileBlob(
+                filename: url.lastPathComponent,
+                base64: data.base64EncodedString()
+            )
+        }
+        return blobs
+    }
+
+    private func handlePickedBackup(at url: URL) {
+        let didStart = url.startAccessingSecurityScopedResource()
+        defer { if didStart { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let data = try Data(contentsOf: url)
+            let bundle = try JSONDecoder().decode(BackupBundle.self, from: data)
+            pendingImport = bundle
+        } catch {
+            importErrorMessage = error.localizedDescription
+        }
+    }
+
+    enum RestoreMode { case replace, merge }
+
+    private func applyBackup(_ bundle: BackupBundle, mode: RestoreMode) {
+        guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
+            importErrorMessage = "App Group container unavailable."
+            return
+        }
+        let dir = containerURL.appendingPathComponent("SharedFiles", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        // ===== Mode REPLACE =====
+        if mode == .replace {
+            // Supprime les anciens fichiers du container.
+            for item in items { removeFileIfLocal(item.url) }
+
+            // Réglages applicatifs.
+            let appDefaults = UserDefaults.standard
+            colorSchemePreference = bundle.settings.colorSchemePreference
+            debugLogsEnabled = bundle.settings.debugLogsEnabled
+            appDefaults.set(bundle.settings.describeImagesEnabled, forKey: "describeImagesEnabled")
+            appDefaults.set(bundle.settings.describeImagesProvider, forKey: "describeImagesProvider")
+            // SÉCURITÉ : on ne réécrit la clé d'API que si la sauvegarde
+            // en contient une non vide (ce ne sera jamais le cas avec
+            // les sauvegardes produites par cette app, qui blanchissent
+            // toujours le champ). On préserve donc la clé déjà saisie.
+            if !bundle.settings.describeImagesAPIKey.isEmpty {
+                appDefaults.set(bundle.settings.describeImagesAPIKey, forKey: "describeImagesAPIKey")
+            }
+            appDefaults.set(bundle.settings.describeImagesModel, forKey: "describeImagesModel")
+            appDefaults.set(bundle.settings.simulateDateDelay, forKey: "simulateDateDelay")
+
+            var newFolders = bundle.folders
+            if !newFolders.contains(StoreKeys.defaultFolder) {
+                newFolders.insert(StoreKeys.defaultFolder, at: 0)
+            }
+            folders = newFolders
+            saveFolders()
+
+            items = restoreItems(bundle.items, files: bundle.files, into: dir, regenerateIDs: false)
+            saveItems()
+
+            if folders.contains(bundle.settings.selectedFolder) {
+                selectedFolder = bundle.settings.selectedFolder
+            } else {
+                selectedFolder = StoreKeys.defaultFolder
+            }
+            UserDefaults(suiteName: appGroup)?.set(selectedFolder, forKey: StoreKeys.selectedFolder)
+            return
+        }
+
+        // ===== Mode MERGE =====
+        // - Réglages : on conserve les valeurs courantes (rien d'écrasé).
+        // - Folders : union (les folders nouveaux sont ajoutés à la fin).
+        // - Items : append. On régénère les IDs pour éviter toute collision
+        //   avec des items existants ; les fichiers binaires sont récupérés
+        //   par l'ancien ID puis restaurés sous un nouveau nom.
+        for f in bundle.folders where !folders.contains(f) {
+            folders.append(f)
+        }
+        saveFolders()
+
+        let merged = restoreItems(bundle.items, files: bundle.files, into: dir, regenerateIDs: true)
+        items.append(contentsOf: merged)
+        saveItems()
+    }
+
+    /// Écrit les binaires de `files` dans `dir` et retourne la liste d'items
+    /// avec leur `url` pointant sur le nouveau chemin App Group. Si
+    /// `regenerateIDs` est vrai, chaque item reçoit un nouvel UUID (pour
+    /// éviter les collisions avec des items existants en mode merge).
+    private func restoreItems(_ source: [SharedItem],
+                              files: [String: BackupBundle.FileBlob],
+                              into dir: URL,
+                              regenerateIDs: Bool) -> [SharedItem] {
+        var result = source
+        let now = Int(Date().timeIntervalSince1970 * 1000)
+        for i in 0..<result.count {
+            let item = result[i]
+            // ID de référence pour retrouver le blob (avant régénération).
+            let blob = files[item.id]
+            if regenerateIDs {
+                let copy = SharedItem(
+                    id: UUID().uuidString,
+                    url: item.url,
+                    title: item.title,
+                    sourceApp: item.sourceApp,
+                    folder: item.folder,
+                    timestamp: item.timestamp,
+                    kind: item.kind,
+                    modifiedAt: item.modifiedAt,
+                    latitude: item.latitude,
+                    longitude: item.longitude,
+                    placeName: item.placeName,
+                    aiDescribed: item.aiDescribed,
+                    lastSeenModifiedAt: item.lastSeenModifiedAt,
+                    originalURL: item.originalURL
+                )
+                result[i] = copy
+            }
+            guard let blob = blob, let data = Data(base64Encoded: blob.base64) else { continue }
+            let safeName = "\(now)-\(i)_\(blob.filename)"
+            let dest = dir.appendingPathComponent(safeName)
+            do {
+                try data.write(to: dest, options: .atomic)
+                result[i].url = dest.absoluteString
+            } catch {
+                print("Restore file write error: \(error)")
+            }
+        }
+        return result
     }
 
     // MARK: - Unread state (URL items)
@@ -1432,6 +1780,24 @@ extension URL: @retroactive Identifiable {
     public var id: String { absoluteString }
 }
 
+extension Color {
+    /// Vert foncé de l'icône globe (URL). Plus clair en mode sombre pour
+    /// rester lisible sur fond sombre.
+    static let urlAccent = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.45, green: 0.85, blue: 0.55, alpha: 1)
+            : UIColor(red: 0.0,  green: 0.45, blue: 0.20, alpha: 1)
+    })
+
+    /// Bordeaux pour les titres d'URL "non lus" (page modifiée depuis la
+    /// dernière ouverture). Variante plus claire en mode sombre.
+    static let unreadBordeaux = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 1.00, green: 0.55, blue: 0.60, alpha: 1)
+            : UIColor(red: 0.55, green: 0.00, blue: 0.15, alpha: 1)
+    })
+}
+
 extension Array {
     /// Découpe le tableau en sous-tableaux de taille `size` maximum.
     func chunked(into size: Int) -> [[Element]] {
@@ -1439,6 +1805,17 @@ extension Array {
             Array(self[$0..<Swift.min($0 + size, count)])
         }
     }
+}
+
+/// Présente la feuille de partage iOS pour un fichier (export du backup).
+struct BackupShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
 
 /// Job de traduction d'un titre d'item (labels Vision anglais → langue user).

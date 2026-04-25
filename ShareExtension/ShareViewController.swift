@@ -256,6 +256,46 @@ class ShareViewController: UIViewController {
             }
         }
 
+        // -- Branche audio (public.audio) : mp3, m4a, wav…
+        for attachment in attachments {
+            if attachment.hasItemConformingToTypeIdentifier(UTType.audio.identifier) {
+                log("🎵 Audio branch matched (hasItem public.audio). Loading…")
+                attachment.loadItem(forTypeIdentifier: UTType.audio.identifier, options: nil) { [weak self] data, error in
+                    self?.log("📥 Audio loadItem: type=\(type(of: data)) err=\(error?.localizedDescription ?? "none")")
+                    guard let audioURL = data as? URL, audioURL.isFileURL else {
+                        self?.log("⚠️ Audio loadItem ne renvoie pas de file URL — fallback unsupported")
+                        DispatchQueue.main.async { self?.logUnsupportedPayloadAndComplete() }
+                        return
+                    }
+                    let srcModDate: Double? = {
+                        let didStart = audioURL.startAccessingSecurityScopedResource()
+                        defer { if didStart { audioURL.stopAccessingSecurityScopedResource() } }
+                        if let attrs = try? FileManager.default.attributesOfItem(atPath: audioURL.path),
+                           let d = attrs[.modificationDate] as? Date {
+                            return d.timeIntervalSince1970
+                        }
+                        return nil
+                    }()
+                    guard let copied = self?.copyFileToAppGroup(originalURL: audioURL) else {
+                        self?.log("⚠️ Échec copie audio — unsupported.")
+                        DispatchQueue.main.async { self?.logUnsupportedPayloadAndComplete() }
+                        return
+                    }
+                    let filename = audioURL.lastPathComponent
+                    let title = (pageTitle?.isEmpty == false) ? pageTitle : filename
+                    let finalSource = sourceApp ?? "Audio"
+                    self?.log("🎵 Audio imported: \(copied.lastPathComponent) modDate=\(String(describing: srcModDate))")
+                    self?.save(urlString: copied.absoluteString,
+                               sourceApp: finalSource,
+                               pageTitle: title,
+                               kind: "audio",
+                               modifiedAt: srcModDate)
+                    DispatchQueue.main.async { self?.showCheckmark(sourceApp: finalSource) }
+                }
+                return
+            }
+        }
+
         // -- Branche vidéo (public.movie) traitée avant URL : un mp4 partagé
         //    arrive typiquement avec UTI public.mpeg-4 qui conforme à
         //    public.movie → public.audiovisual-content → public.data, mais pas
@@ -389,13 +429,13 @@ class ShareViewController: UIViewController {
                         self?.fetchTitleFromURL(urlString) { fetchedTitle in
                             let finalTitle = fetchedTitle ?? pageTitle
                             print("   📌 Final title to save: \(finalTitle ?? "None")")
-                            self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: finalTitle)
+                            self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: finalTitle, originalURL: urlString)
                             DispatchQueue.main.async {
                                 self?.showCheckmark(sourceApp: detectedSource)
                             }
                         }
                     } else {
-                        self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: pageTitle)
+                        self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: pageTitle, originalURL: urlString)
                         DispatchQueue.main.async {
                             self?.showCheckmark(sourceApp: detectedSource)
                         }
@@ -459,13 +499,13 @@ class ShareViewController: UIViewController {
                         self?.fetchTitleFromURL(urlString) { fetchedTitle in
                             let finalTitle = fetchedTitle ?? pageTitle
                             print("   📌 Final title to save: \(finalTitle ?? "None")")
-                            self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: finalTitle)
+                            self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: finalTitle, originalURL: urlString)
                             DispatchQueue.main.async {
                                 self?.showCheckmark(sourceApp: detectedSource)
                             }
                         }
                     } else {
-                        self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: pageTitle)
+                        self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: pageTitle, originalURL: urlString)
                         DispatchQueue.main.async {
                             self?.showCheckmark(sourceApp: detectedSource)
                         }
@@ -966,7 +1006,7 @@ class ShareViewController: UIViewController {
         return (lat, lon)
     }
 
-    private func save(urlString: String, sourceApp: String?, pageTitle: String?, kind: String = "url", modifiedAt: Double? = nil, latitude: Double? = nil, longitude: Double? = nil) {
+    private func save(urlString: String, sourceApp: String?, pageTitle: String?, kind: String = "url", modifiedAt: Double? = nil, latitude: Double? = nil, longitude: Double? = nil, originalURL: String? = nil) {
         guard let defaults = UserDefaults(suiteName: appGroup) else {
             print("❌ ERROR: Cannot access UserDefaults for app group: \(appGroup)")
             print("   Make sure App Groups capability is enabled in both targets!")
@@ -1006,7 +1046,7 @@ class ShareViewController: UIViewController {
         // Pour les fichiers ET les photos, si on a réussi à lire la date on
         // l'utilise, sinon on tombe sur "now". Pour les textes : "now".
         // Pour les URLs, modifiedAt reste absent — l'app ira le chercher.
-        if kind == "file" || kind == "photo" || kind == "video" {
+        if kind == "file" || kind == "photo" || kind == "video" || kind == "audio" {
             newItem["modifiedAt"] = modifiedAt ?? now
         } else if kind == "text" {
             newItem["modifiedAt"] = now
@@ -1015,6 +1055,11 @@ class ShareViewController: UIViewController {
         // Métadonnées GPS (photos uniquement).
         if let latitude = latitude { newItem["latitude"] = latitude }
         if let longitude = longitude { newItem["longitude"] = longitude }
+
+        // URL d'origine (avant transform), si différente.
+        if let originalURL = originalURL, originalURL != urlString {
+            newItem["originalURL"] = originalURL
+        }
 
         items.insert(newItem, at: 0)
 
