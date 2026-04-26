@@ -34,8 +34,10 @@
             </array>
         </dict>
     </array>
+    <key>CFBundleDisplayName</key>
+    <string>Captured</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>ShareManager transcribes the first seconds of shared audio clips on-device to use as their title.</string>
+    <string>Captured transcribes the first seconds of shared audio clips on-device to use as their title.</string>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UISupportedInterfaceOrientations</key>

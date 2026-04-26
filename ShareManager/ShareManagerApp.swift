@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct ShareManagerApp: App {
@@ -10,6 +11,7 @@ struct ShareManagerApp: App {
             "describeImagesProvider": "apple",
             "simulateDateDelay": false,
         ])
+
     }
 
     var body: some Scene {

@@ -5,6 +5,7 @@ import CoreLocation
 import Vision
 import AVFoundation
 import Speech
+import StoreKit
 import UniformTypeIdentifiers
 import CoreSpotlight
 import WidgetKit
@@ -58,6 +59,15 @@ struct SharedItem: Codable, Identifiable, Hashable {
     /// Vrai si une tentative d'OCR a été effectuée sur la photo (succès
     /// ou échec). Bloque les retentatives automatiques.
     var ocrDone: Bool?
+    /// Nom de fichier (à l'intérieur du sous-dossier `previews/` du
+    /// container App Group) de l'aperçu PNG 320x200. Nil tant que la
+    /// génération n'a pas eu lieu, "" si l'on a essayé sans succès.
+    var previewPath: String?
+    /// Nombre d'appels IA cloud (OpenAI / Anthropic) déjà effectués pour
+    /// cet item. Plafonné à 5 ; au-delà, l'app n'invoque plus l'IA pour
+    /// cet item — l'utilisateur peut le réinitialiser via le menu
+    /// contextuel de la ligne. Persistant dans le JSON de sauvegarde.
+    var aiCallsCount: Int?
 
     var effectiveKind: String {
         if let k = kind { return k }
@@ -80,6 +90,10 @@ struct BackupBundle: Codable {
     var items: [SharedItem]
     /// Binaires des items file/photo/video, indexés par `SharedItem.id`.
     var files: [String: FileBlob]
+    /// Aperçus PNG (320×200 logique, ×3 pixels) en base64, indexés par
+    /// `SharedItem.id`. Optionnel pour rétro-compat avec d'anciennes
+    /// sauvegardes.
+    var previews: [String: String]?
 
     struct Settings: Codable {
         var colorSchemePreference: Int
@@ -99,6 +113,68 @@ struct BackupBundle: Codable {
 }
 
 /// Identifiants de clés UserDefaults et valeurs réservées.
+/// Compteurs persistants d'utilisation des providers IA cloud.
+/// Stockés dans `UserDefaults.standard` (donc préservés entre les
+/// lancements de l'app). Apple Intelligence n'est PAS instrumenté.
+/// Remis à zéro automatiquement quand l'utilisateur désactive l'IA via
+/// Réglages iOS.
+enum AICounters {
+    /// Enregistre une requête avec les VRAIS comptes de tokens, lus
+    /// depuis le champ `usage` de la réponse JSON (OpenAI / Anthropic).
+    /// Le `provider` correspond aux valeurs internes "openai" / "anthropic".
+    /// `model` est mémorisé pour pouvoir l'afficher dans le panneau de
+    /// statistiques (dernier modèle utilisé pour ce provider).
+    static func record(provider: String, model: String, tokensIn: Int, tokensOut: Int) {
+        let d = UserDefaults.standard
+        d.set(d.integer(forKey: requestsKey(provider)) + 1,
+              forKey: requestsKey(provider))
+        d.set(d.integer(forKey: tokensInKey(provider)) + max(0, tokensIn),
+              forKey: tokensInKey(provider))
+        d.set(d.integer(forKey: tokensOutKey(provider)) + max(0, tokensOut),
+              forKey: tokensOutKey(provider))
+        d.set(model, forKey: modelKey(provider))
+    }
+
+    static func read(provider: String) -> (requests: Int, tokensIn: Int, tokensOut: Int, model: String?) {
+        let d = UserDefaults.standard
+        return (d.integer(forKey: requestsKey(provider)),
+                d.integer(forKey: tokensInKey(provider)),
+                d.integer(forKey: tokensOutKey(provider)),
+                d.string(forKey: modelKey(provider)))
+    }
+
+    /// Remet à zéro tous les compteurs (tous providers).
+    static func resetAll() {
+        let d = UserDefaults.standard
+        for p in ["openai", "anthropic"] {
+            d.removeObject(forKey: requestsKey(p))
+            d.removeObject(forKey: tokensInKey(p))
+            d.removeObject(forKey: tokensOutKey(p))
+            d.removeObject(forKey: modelKey(p))
+        }
+    }
+
+    /// Liste des providers ayant au moins une requête enregistrée.
+    static func providersWithCalls() -> [String] {
+        ["openai", "anthropic"].filter {
+            UserDefaults.standard.integer(forKey: requestsKey($0)) > 0
+        }
+    }
+
+    static func displayName(_ provider: String) -> String {
+        switch provider {
+        case "openai":    return "OpenAI"
+        case "anthropic": return "Anthropic"
+        default:          return provider.capitalized
+        }
+    }
+
+    private static func requestsKey(_ p: String)  -> String { "ai.\(p).requests" }
+    private static func tokensInKey(_ p: String)  -> String { "ai.\(p).tokensIn" }
+    private static func tokensOutKey(_ p: String) -> String { "ai.\(p).tokensOut" }
+    private static func modelKey(_ p: String)     -> String { "ai.\(p).model" }
+}
+
 enum StoreKeys {
     static let items = "items"
     static let folders = "folders"
@@ -140,15 +216,44 @@ struct ContentView: View {
     @State private var lastLogSize: Int = 0
 
     @State private var themeAnnouncement: (old: Int, new: Int)? = nil
+    /// Annonce overlay pull-to-refresh (mêmes style/durée que themeOverlay).
+    @State private var refreshAnnouncement: Bool = false
+    /// Horodatages des appels IA (OpenAI/Anthropic uniquement, jamais
+    /// Apple Intelligence). Volontairement non persisté — repart de zéro
+    /// au lancement de l'app.
+    @State private var aiCallTimestamps: [Date] = []
+    /// Alerte avertissement quand l'utilisateur dépasse le seuil de 20
+    /// appels IA en 5 minutes glissantes.
+    @State private var showAIRateWarning: Bool = false
+    /// Dernière valeur connue de `describeImagesEnabled` — sert à détecter
+    /// la transition true → false (l'utilisateur vient de désactiver l'IA
+    /// via Réglages iOS) → reset des compteurs.
+    @State private var lastSeenAIEnabled: Bool = UserDefaults.standard.bool(forKey: "describeImagesEnabled")
+    /// Dernier provider connu (apple/openai/anthropic). Si l'utilisateur
+    /// le change dans Réglages iOS → reset des compteurs (le nom du
+    /// modèle entre parenthèses dans le panneau latéral n'aurait plus de
+    /// rapport avec les chiffres affichés).
+    @State private var lastSeenAIProvider: String =
+        UserDefaults.standard.string(forKey: "describeImagesProvider") ?? "apple"
+    /// Dernier modèle custom connu. Idem : un changement de modèle
+    /// invalide les compteurs.
+    @State private var lastSeenAIModel: String =
+        UserDefaults.standard.string(forKey: "describeImagesModel") ?? ""
+    // (appDataBytes, statsTick, appDataComputing déplacés dans
+    // StatsPanelView pour que leurs mutations ne fassent re-rendre que
+    // le panneau de statistiques — pas la toolbar avec ses Menus.)
     @State private var showNewFolderAlert = false
     @State private var newFolderName = ""
     @State private var folderToDelete: String? = nil
 
     @State private var fetchingDateIDs: Set<String> = []
     @State private var refreshTask: Task<Void, Never>? = nil
-    @State private var blinkPhase: Bool = false
+    // (Anciennement `@State blinkPhase: Bool` toggled par un Timer ; voir
+    // l'extension `View.blinking()` plus bas.)
     @State private var geocodingIDs: Set<String> = []
     @State private var describingIDs: Set<String> = []
+    @State private var generatingPreviewIDs: Set<String> = []
+    @State private var showPreviewsSheet: Bool = false
     @State private var editingItem: SharedItem? = nil
     @State private var pendingLabelTranslations: [LabelTranslationJob] = []
 
@@ -162,6 +267,12 @@ struct ContentView: View {
     @State private var typeFilter: String = "all"
     @State private var sortOrder: SortOrder = .insertion
     @State private var selection: Set<String> = []
+    /// Lecture du mode d'édition pour distinguer un tap "ouvrir l'item"
+    /// d'un tap "modifier la sélection" — sans ça, iOS 17 garde le mode
+    /// selection actif tant que la `selection` Set n'est pas vide, ce
+    /// qui empêche `.onTapGesture` d'ouvrir une URL après une sortie
+    /// d'edit mode laissant des items cochés.
+    @Environment(\.editMode) private var editMode
     @State private var editingNoteItem: SharedItem? = nil
     @State private var smartFolder: SmartFolder? = nil
     @AppStorage("smartFoldersExpanded") private var smartFoldersExpanded: Bool = true
@@ -187,7 +298,7 @@ struct ContentView: View {
             switch self {
             case .all:          return String(localized: "All items")
             case .recent7days:  return String(localized: "Recent (7 days)")
-            case .unreadURLs:   return String(localized: "Unread URLs")
+            case .unreadURLs:   return String(localized: "Unread")
             case .withLocation: return String(localized: "With location")
             case .photosOnly:   return String(localized: "Photos only")
             case .videosOnly:   return String(localized: "Videos only")
@@ -207,6 +318,24 @@ struct ContentView: View {
     /// Passe à true après le tout premier `loadItems()` afin que l'auto-fetch
     /// ne se déclenche que pour les items apparus APRÈS le démarrage.
     @State private var hasInitialized: Bool = false
+    /// Cache des bytes JSON UserDefaults lus la dernière fois — sert à
+    /// éviter le décode de tout le tableau d'items à chaque tick du
+    /// timer 100 ms quand rien n'a changé. Cause majeure de CPU élevé
+    /// après les opérations massives (clear AI generated text, etc.).
+    @State private var lastLoadedItemsData: Data? = nil
+    /// Dernier total de partages observé : sert à détecter les
+    /// nouveaux partages (depuis le Share Extension) pendant que l'app
+    /// est lancée pour proposer la fenêtre « Noter cette app » à chaque
+    /// multiple de 10. Initialisé à la valeur courante au démarrage —
+    /// donc jamais de prompt pour les partages déjà comptabilisés
+    /// AVANT que l'utilisateur n'ouvre l'app.
+    @State private var lastSeenShareCount: Int =
+        UserDefaults(suiteName: "group.net.fenyo.apple.sharemanager")?
+            .integer(forKey: "totalShareCount") ?? 0
+    /// API SwiftUI standard pour proposer à l'utilisateur de noter
+    /// l'app dans l'App Store (iOS 16+). iOS gère lui-même le
+    /// throttling (max ~3 prompts par an). Pas de garantie d'affichage.
+    @Environment(\.requestReview) private var requestReview
 
     @AppStorage("colorSchemePreference") private var colorSchemePreference: Int = 0
     @AppStorage("debugLogsEnabled", store: UserDefaults(suiteName: "group.net.fenyo.apple.sharemanager")) private var debugLogsEnabled = false
@@ -331,7 +460,24 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showDebugLogs) { debugLogsSheet }
+        .fullScreenCover(isPresented: $showPreviewsSheet) {
+            PreviewsSheet(items: currentItems.filter { $0.effectiveKind != "text" }) { selected in
+                showPreviewsSheet = false
+                // Petit délai pour que le fullScreenCover ait fini de se
+                // refermer avant de présenter la prochaine sheet (Safari /
+                // QuickLook), sinon iOS peut rejeter la nouvelle modale.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    openItem(selected)
+                }
+            }
+        }
         .overlay(alignment: .top) { themeOverlay }
+        .overlay(alignment: .top) { refreshOverlay }
+        .alert("Many AI calls", isPresented: $showAIRateWarning) {
+            Button("Got it", role: .cancel) { }
+        } message: {
+            Text("You've made more than \(Self.aiRateLimitMaxCalls) AI requests in the last \(Self.aiRateLimitWindowMinutes) minutes. Each call costs API credits — please make sure this is intended. The counter has been reset.")
+        }
         .alert("New Folder", isPresented: $showNewFolderAlert) {
             TextField("Folder name", text: $newFolderName)
             Button("Cancel", role: .cancel) { newFolderName = "" }
@@ -372,12 +518,27 @@ struct ContentView: View {
         .onReceive(Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()) { _ in
             loadItems()
             if debugLogsEnabled { loadDebugLogs() }
+            checkAIEnabledTransition()
+            checkShareCountForReview()
         }
-        .onReceive(Timer.publish(every: 0.6, on: .main, in: .common).autoconnect()) { _ in
-            withAnimation(.easeInOut(duration: 0.4)) {
-                blinkPhase.toggle()
-            }
-        }
+        // Recalcul de la taille du container App Group : SEULEMENT toutes
+        // les 2 s. Avant on était à 100 ms, ce qui sur un container
+        // contenant beaucoup de PNG/photos/vidéos lançait une traversée
+        // récursive 10×/s — cause majeure de CPU constant en background,
+        // particulièrement visible après « Clear AI-generated text » qui
+        // multiplie les écritures dans le container. 2 s suffit largement
+        // pour refléter un changement à l'œil nu.
+        // Le timer du panneau de stats est désormais interne à
+        // StatsPanelView (cf. plus bas). On ne le pose plus ici, car ses
+        // mutations @State faisaient re-rendre tout ContentView (donc
+        // les Menus de la toolbar) toutes les 2 s.
+        // Note : on n'utilise PLUS de Timer.publish toggling un @State
+        // blinkPhase global, parce que ça forçait l'ensemble du body de
+        // ContentView à se ré-évaluer toutes les 600 ms — la toolbar et
+        // ses Menus se reconstruisaient alors en permanence (« le menu
+        // clignote »). Le clignotement des textes (« Describing… »,
+        // « Fetching date… ») est désormais géré par `.blinking()` via
+        // un TimelineView local à chaque texte concerné.
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
             if let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
                let item = items.first(where: { $0.id == id }) {
@@ -467,10 +628,89 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - AI counters & app data size
+
+    /// Surveille le compteur global de partages (clé `totalShareCount`
+    /// dans le UserDefaults App Group). Quand un nouveau partage arrive
+    /// pendant que l'app tourne ET que le total franchit un multiple de
+    /// 10, demande à iOS d'afficher la feuille « Noter cette app ».
+    /// iOS throttle l'affichage (~3 fois max par an), donc l'appel peut
+    /// être no-op silencieusement.
+    private func checkShareCountForReview() {
+        guard let d = UserDefaults(suiteName: appGroup) else { return }
+        let current = d.integer(forKey: "totalShareCount")
+        guard current > lastSeenShareCount else { return }
+        // Pour être robuste si plusieurs partages arrivent entre deux
+        // ticks (rare mais possible), on regarde si AU MOINS un
+        // multiple de 10 est franchi entre lastSeen+1 et current.
+        let crossed = (lastSeenShareCount / 10) != (current / 10) && current > 0
+        lastSeenShareCount = current
+        if crossed {
+            // Légère attente pour laisser SwiftUI finir son cycle
+            // avant de déclencher la modale système.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                requestReview()
+            }
+        }
+    }
+
+    /// Détecte trois types de changements faits depuis Réglages iOS qui
+    /// invalident les compteurs IA et déclenchent un reset :
+    /// 1. `describeImagesEnabled` passe à false (IA désactivée).
+    /// 2. `describeImagesProvider` change (OpenAI ↔ Anthropic ↔ Apple).
+    /// 3. `describeImagesModel` change (nouveau modèle custom).
+    /// Sans (2) et (3), le panneau latéral afficherait des compteurs
+    /// agrégés sur des modèles différents avec un seul nom de modèle
+    /// entre parenthèses → trompeur.
+    private func checkAIEnabledTransition() {
+        let d = UserDefaults.standard
+        let nowEnabled = d.bool(forKey: "describeImagesEnabled")
+        let nowProvider = d.string(forKey: "describeImagesProvider") ?? "apple"
+        let nowModel = d.string(forKey: "describeImagesModel") ?? ""
+
+        let toggledOff = lastSeenAIEnabled && !nowEnabled
+        let providerChanged = (lastSeenAIProvider != nowProvider)
+        let modelChanged = (lastSeenAIModel != nowModel)
+
+        if toggledOff || providerChanged || modelChanged {
+            AICounters.resetAll()
+        }
+        if lastSeenAIEnabled != nowEnabled { lastSeenAIEnabled = nowEnabled }
+        if lastSeenAIProvider != nowProvider { lastSeenAIProvider = nowProvider }
+        if lastSeenAIModel != nowModel { lastSeenAIModel = nowModel }
+    }
+
+    // (recomputeAppDataBytes a été déplacé dans StatsPanelView, qui
+    // possède son propre @State et son propre timer. Cela isole les
+    // mutations @State liées aux stats du body de ContentView, qui
+    // n'est donc plus re-rendu toutes les 2 s.)
+
     // MARK: - Sidebar
 
     @ViewBuilder
     private var sidebar: some View {
+        VStack(spacing: 12) {
+            sidebarList
+            statsPanel
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+        }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("Folders")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    newFolderName = ""
+                    showNewFolderAlert = true
+                } label: {
+                    Image(systemName: "folder.badge.plus")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sidebarList: some View {
         List(selection: $selectedFolder) {
             Section {
                 Button {
@@ -530,17 +770,18 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.5), value: smartFoldersExpanded)
-        .navigationTitle("Folders")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    newFolderName = ""
-                    showNewFolderAlert = true
-                } label: {
-                    Image(systemName: "folder.badge.plus")
-                }
-            }
-        }
+    }
+
+    // MARK: - Stats panel (sidebar bottom)
+
+    @ViewBuilder
+    private var statsPanel: some View {
+        // Délégation à `StatsPanelView` qui possède son propre @State :
+        // ses re-renders périodiques (timer toutes les 2 s pour la taille
+        // du container et les compteurs IA) restent confinés à ce
+        // sous-arbre et ne déclenchent PAS de re-render de la toolbar de
+        // ContentView (donc plus de clignotement des Menus).
+        StatsPanelView(appGroup: appGroup)
     }
 
     private func smartCount(_ sf: SmartFolder) -> Int {
@@ -607,7 +848,6 @@ struct ContentView: View {
             ToolbarItem(placement: .navigationBarLeading) {
                 EditButton()
                     .disabled(items.isEmpty)
-                    .animation(.easeInOut(duration: 0.5), value: items.isEmpty)
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 filterSortMenu
@@ -616,13 +856,35 @@ struct ContentView: View {
                 settingsMenu
             }
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(role: .destructive) {
-                    showClearConfirmation = true
+                Menu {
+                    Button {
+                        clearPreviewsForCurrent()
+                    } label: {
+                        Label("Clear previews of these items", systemImage: "rectangle.dashed")
+                    }
+                    Button {
+                        clearAITextForCurrent()
+                    } label: {
+                        Label("Clear AI-generated text of these items", systemImage: "text.badge.xmark")
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        showClearConfirmation = true
+                    } label: {
+                        Label("Delete these items", systemImage: "trash")
+                    }
                 } label: {
                     Image(systemName: "trash")
                 }
                 .disabled(currentItems.isEmpty)
-                .animation(.easeInOut(duration: 0.5), value: currentItems.isEmpty)
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showPreviewsSheet = true
+                } label: {
+                    Image(systemName: "rectangle.grid.2x2")
+                }
+                .disabled(items.isEmpty)
             }
             // Bottom bar pour les opérations en lot quand selection non vide
             ToolbarItemGroup(placement: .bottomBar) {
@@ -858,9 +1120,9 @@ struct ContentView: View {
                     toggleRefreshAllDates()
                 } label: {
                     if refreshTask == nil {
-                        Label("Refresh dates", systemImage: "arrow.clockwise")
+                        Label("Refresh previews and URL dates", systemImage: "arrow.clockwise")
                     } else {
-                        Label("Stop refreshing dates", systemImage: "stop.circle")
+                        Label("Stop refreshing previews and URL dates", systemImage: "stop.circle")
                     }
                 }
                 Divider()
@@ -876,6 +1138,14 @@ struct ContentView: View {
                 showBackupImporter = true
             } label: {
                 Label("Restore app data", systemImage: "square.and.arrow.down")
+            }
+            if !AICounters.providersWithCalls().isEmpty {
+                Divider()
+                Button(role: .destructive) {
+                    AICounters.resetAll()
+                } label: {
+                    Label("Reset AI counters", systemImage: "gauge.with.dots.needle.0percent")
+                }
             }
             Divider()
             Toggle(isOn: $debugLogsEnabled) {
@@ -907,6 +1177,42 @@ struct ContentView: View {
         }
     }
 
+    /// Vrai si l'item a une vignette générée et exploitable
+    /// (`previewPath` non nil ET non vide). Les items de type "text"
+    /// n'ont jamais de vignette : on les exclut explicitement, même si
+    /// d'anciens partages en ont une stockée sur disque.
+    private func hasUsablePreview(_ item: SharedItem) -> Bool {
+        guard item.effectiveKind != "text" else { return false }
+        if let p = item.previewPath, !p.isEmpty { return true }
+        return false
+    }
+
+    /// Vrai si une « regénération d'aperçu » a un sens pour cet item :
+    /// les types audio et texte n'ont rien d'utile à recapturer.
+    private func canRegeneratePreview(_ item: SharedItem) -> Bool {
+        let k = item.effectiveKind
+        return k != "audio" && k != "text"
+    }
+
+    /// Vrai si on génère un texte via IA pour cet item (description IA
+    /// pour photo/video, transcription pour audio).
+    private func hasAIGeneratedText(_ item: SharedItem) -> Bool {
+        let k = item.effectiveKind
+        return k == "photo" || k == "video" || k == "audio"
+    }
+
+    /// Vrai si une opération asynchrone est en cours pour cet item :
+    /// description IA, OCR (qui partage `describingIDs` via le pipeline
+    /// audio aussi), génération de vignette, fetch de date URL, ou
+    /// reverse geocoding photo. Sert à faire clignoter l'icône de la
+    /// ligne tant que ça travaille.
+    private func isItemBusy(_ item: SharedItem) -> Bool {
+        return describingIDs.contains(item.id)
+            || generatingPreviewIDs.contains(item.id)
+            || fetchingDateIDs.contains(item.id)
+            || geocodingIDs.contains(item.id)
+    }
+
     @ViewBuilder
     private func itemRow(_ item: SharedItem) -> some View {
         let kind = item.effectiveKind
@@ -916,68 +1222,98 @@ struct ContentView: View {
             switch kind {
             case "file":
                 HStack(spacing: 8) {
-                    Image(systemName: "doc.fill")
-                        .foregroundColor(.blue)
+                    if isItemBusy(item) {
+                        SpinningGear(color: .blue)
+                    } else {
+                        Image(systemName: "doc.fill")
+                            .foregroundColor(.blue)
+                    }
+                    let unread = isUnread(item)
                     Text(item.title ?? linkURL?.lastPathComponent ?? item.url)
                         .font(.subheadline)
-                        .fontWeight(.medium)
+                        .fontWeight(unread ? .bold : .medium)
+                        .foregroundColor(unread ? .unreadBordeaux : .primary)
                         .lineLimit(2)
                 }
             case "photo":
                 HStack(spacing: 8) {
-                    Image(systemName: "photo.fill")
-                        .foregroundColor(.indigo)
+                    if isItemBusy(item) {
+                        SpinningGear(color: .indigo)
+                    } else {
+                        Image(systemName: "photo.fill")
+                            .foregroundColor(.indigo)
+                    }
                     if describingIDs.contains(item.id) {
                         Text("Describing image…")
                             .font(.subheadline)
                             .fontWeight(.medium)
-                            .opacity(blinkPhase ? 1.0 : 0.35)
+                            .blinking()
                     } else {
+                        let unread = isUnread(item)
                         Text(item.title ?? linkURL?.lastPathComponent ?? item.url)
                             .font(.subheadline)
-                            .fontWeight(.medium)
+                            .fontWeight(unread ? .bold : .medium)
+                            .foregroundColor(unread ? .unreadBordeaux : .primary)
                             .lineLimit(2)
                     }
                 }
             case "video":
                 HStack(spacing: 8) {
-                    Image(systemName: "video.fill")
-                        .foregroundColor(.red)
+                    if isItemBusy(item) {
+                        SpinningGear(color: .red)
+                    } else {
+                        Image(systemName: "video.fill")
+                            .foregroundColor(.red)
+                    }
                     if describingIDs.contains(item.id) {
                         Text("Describing video…")
                             .font(.subheadline)
                             .fontWeight(.medium)
-                            .opacity(blinkPhase ? 1.0 : 0.35)
+                            .blinking()
                     } else {
+                        let unread = isUnread(item)
                         Text(item.title ?? linkURL?.lastPathComponent ?? item.url)
                             .font(.subheadline)
-                            .fontWeight(.medium)
+                            .fontWeight(unread ? .bold : .medium)
+                            .foregroundColor(unread ? .unreadBordeaux : .primary)
                             .lineLimit(2)
                     }
                 }
             case "audio":
                 HStack(spacing: 8) {
-                    Image(systemName: "waveform")
-                        .foregroundColor(.teal)
+                    if isItemBusy(item) {
+                        SpinningGear(color: .teal)
+                    } else {
+                        Image(systemName: "waveform")
+                            .foregroundColor(.teal)
+                    }
                     if describingIDs.contains(item.id) {
                         Text("Transcribing audio…")
                             .font(.subheadline)
                             .fontWeight(.medium)
-                            .opacity(blinkPhase ? 1.0 : 0.35)
+                            .blinking()
                     } else {
+                        let unread = isUnread(item)
                         Text(item.title ?? linkURL?.lastPathComponent ?? item.url)
                             .font(.subheadline)
-                            .fontWeight(.medium)
+                            .fontWeight(unread ? .bold : .medium)
+                            .foregroundColor(unread ? .unreadBordeaux : .primary)
                             .lineLimit(2)
                     }
                 }
             case "text":
                 HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "text.alignleft")
-                        .foregroundColor(.orange)
+                    if isItemBusy(item) {
+                        SpinningGear(color: .orange)
+                    } else {
+                        Image(systemName: "text.alignleft")
+                            .foregroundColor(.orange)
+                    }
+                    let unread = isUnread(item)
                     Text(item.title ?? String(item.url.prefix(80)))
                         .font(.subheadline)
-                        .fontWeight(.medium)
+                        .fontWeight(unread ? .bold : .medium)
+                        .foregroundColor(unread ? .unreadBordeaux : .primary)
                         .lineLimit(2)
                 }
                 Text(textFirstLinePreview(item.url))
@@ -989,8 +1325,12 @@ struct ContentView: View {
                 let unread = isUnread(item)
                 let displayURL = item.originalURL ?? item.url
                 HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "globe")
-                        .foregroundColor(.urlAccent)
+                    if isItemBusy(item) {
+                        SpinningGear(color: .urlAccent)
+                    } else {
+                        Image(systemName: "globe")
+                            .foregroundColor(.urlAccent)
+                    }
                     Text(item.title ?? displayURL)
                         .font(.subheadline)
                         .fontWeight(unread ? .bold : .medium)
@@ -1019,20 +1359,49 @@ struct ContentView: View {
             dateRow(for: item)
             placeRow(for: item)
             noteRow(for: item)
+            if aiCallsHardCapped(item) {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                    Text("Limit of \(Self.aiCallsLimit) AI calls reached for this item — no further AI invocations.")
+                        .font(.caption2)
+                        .lineLimit(2)
+                }
+                .foregroundColor(.orange)
+                .padding(.top, 2)
+            }
         }
         .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // Réserve à droite pour que le texte ne passe jamais sous la
+        // vignette : largeur fixe + écart standard de respiration.
+        .padding(.trailing, hasUsablePreview(item) ? 128 : 0)
+        // On force toutes les lignes (qui ont une vignette) à une hauteur
+        // minimale qui correspond à celle de la vignette + un écart
+        // standard de 6 pt en haut et en bas → toutes les vignettes
+        // mesurent la MÊME hauteur, et celle-ci est aussi grande que le
+        // raisonnable sans pour autant déborder sur la ligne suivante.
+        .frame(maxWidth: .infinity,
+               minHeight: hasUsablePreview(item) ? 84 : 0,
+               alignment: .leading)
+        // Vignette à droite, TAILLE FIXE 112×70 (ratio 320/200 = 1.6).
+        // L'overlay ne participe pas au layout du parent et le minHeight
+        // ci-dessus garantit qu'il y a au moins 70 + 14 = 84 pt de
+        // hauteur disponible.
+        .overlay(alignment: .trailing) {
+            if hasUsablePreview(item) {
+                RowThumbnail(item: item)
+                    .frame(width: 112, height: 70)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.4), lineWidth: 0.5)
+                    )
+                    .allowsHitTesting(false)
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture {
-            switch kind {
-            case "file", "photo", "video", "audio":
-                if let link = linkURL { previewFileURL = link }
-            case "text":
-                textToPreview = TextPreviewPayload(text: item.url, title: item.title)
-            default:
-                markAsSeen(itemID: item.id)
-                if let link = linkURL { safariFullScreenURL = link }
-            }
+            openItem(item)
         }
         .contextMenu {
             Button {
@@ -1051,18 +1420,23 @@ struct ContentView: View {
                 } label: {
                     Label("Copy URL", systemImage: "doc.on.doc")
                 }
-                if !isUnread(item) {
-                    Button {
-                        markAsUnread(itemID: item.id)
-                    } label: {
-                        Label("Mark as unread", systemImage: "circle.inset.filled")
-                    }
-                }
             } else if kind == "text" {
                 Button {
                     UIPasteboard.general.string = item.url
                 } label: {
                     Label("Copy text", systemImage: "doc.on.doc")
+                }
+            }
+            // « Mark as unread » disponible pour TOUS les types
+            // d'objets (l'état non-lu n'est plus réservé aux URL).
+            // Exposé seulement quand l'item est actuellement « lu » et
+            // qu'on a une `modifiedAt` connue (sinon le clic
+            // resterait sans effet visible).
+            if !isUnread(item) && item.modifiedAt != nil {
+                Button {
+                    markAsUnread(itemID: item.id)
+                } label: {
+                    Label("Mark as unread", systemImage: "circle.inset.filled")
                 }
             }
             // Re-partage via la feuille système iOS
@@ -1082,6 +1456,33 @@ struct ContentView: View {
                     Label("Move to…", systemImage: "folder")
                 }
             }
+            if aiCallsHardCapped(item) {
+                Button {
+                    resetItemAICalls(item)
+                } label: {
+                    Label("Reset AI call limit", systemImage: "arrow.counterclockwise")
+                }
+            }
+            // « Regénérer la vignette » : disponible pour les types
+            // pour lesquels capturer un aperçu a un sens (pas audio,
+            // pas texte) et qui ont déjà une vignette à remplacer.
+            if canRegeneratePreview(item) && hasUsablePreview(item) {
+                Button {
+                    regeneratePreview(for: item)
+                } label: {
+                    Label("Regenerate preview", systemImage: "rectangle.dashed")
+                }
+            }
+            // « Regénérer le texte IA » : disponible pour les types qui
+            // passent par une IA (photo/video → description, audio →
+            // transcription). Compteur per-item respecté ensuite.
+            if hasAIGeneratedText(item) {
+                Button {
+                    regenerateAIText(for: item)
+                } label: {
+                    Label("Regenerate AI text", systemImage: "text.badge.xmark")
+                }
+            }
         }
         .onAppear {
             if kind == "url" {
@@ -1094,6 +1495,68 @@ struct ContentView: View {
                !geocodingIDs.contains(item.id) {
                 startReverseGeocode(for: item)
             }
+        }
+    }
+
+    // MARK: - AI rate-limit guard
+
+    /// Seuil global d'appels IA cloud (toutes invocations confondues)
+    /// au-delà duquel l'app prévient l'utilisateur. Window glissante de
+    /// `aiRateLimitWindowMinutes` minutes.
+    static let aiRateLimitMaxCalls: Int = 20
+    static let aiRateLimitWindowMinutes: Int = 5
+
+    /// Enregistre un appel IA cloud, purge la fenêtre glissante et
+    /// déclenche l'alerte (en remettant le compteur à zéro) si on dépasse
+    /// le seuil.
+    private func recordAICall() {
+        let now = Date()
+        let window = TimeInterval(Self.aiRateLimitWindowMinutes * 60)
+        let cutoff = now.addingTimeInterval(-window)
+        aiCallTimestamps.removeAll(where: { $0 < cutoff })
+        aiCallTimestamps.append(now)
+        if aiCallTimestamps.count > Self.aiRateLimitMaxCalls {
+            aiCallTimestamps.removeAll()
+            showAIRateWarning = true
+        }
+    }
+
+    // MARK: - Pull-to-refresh announcement overlay
+
+    /// Déclenche l'overlay « Refreshing » avec auto-disparition (mêmes
+    /// timings que themeOverlay → 1,6 s avant fade out).
+    private func showRefreshAnnouncement() {
+        withAnimation(.spring(duration: 0.25)) {
+            refreshAnnouncement = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                refreshAnnouncement = false
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var refreshOverlay: some View {
+        if refreshAnnouncement {
+            VStack(spacing: 4) {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Refreshing")
+                        .fontWeight(.semibold)
+                }
+                Text("Updating missing previews and URL dates")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .font(.headline)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .shadow(radius: 12)
+            .padding(.top, 20)
+            .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 
@@ -1203,16 +1666,39 @@ struct ContentView: View {
             defaults.removeObject(forKey: "pageTitles")
         }
 
-        guard let data = defaults.data(forKey: StoreKeys.items),
-              let loaded = try? JSONDecoder().decode([SharedItem].self, from: data) else {
+        guard let data = defaults.data(forKey: StoreKeys.items) else {
             if !items.isEmpty { items = [] }
             if !hasInitialized { hasInitialized = true }
             return
         }
 
+        // Skip décode JSON quand les bytes du UserDefaults sont
+        // identiques à la dernière lecture. Sans ce shortcut on
+        // décodait l'ENTIER tableau d'items 10 fois par seconde, ce qui
+        // sur des collections riches (titres IA, ocrDone, previewPath…)
+        // peut prendre plusieurs ms par tick → CPU constant en fond.
+        let dataChanged = (data != lastLoadedItemsData)
         let previousIDs = Set(items.map(\.id))
+        let didChange: Bool
+        let loaded: [SharedItem]
 
-        if loaded != items { items = loaded }
+        if dataChanged {
+            guard let decoded = try? JSONDecoder().decode([SharedItem].self, from: data) else {
+                if !hasInitialized { hasInitialized = true }
+                return
+            }
+            loaded = decoded
+            lastLoadedItemsData = data
+            didChange = (loaded != items)
+            if didChange { items = loaded }
+        } else {
+            // Bytes inchangés → la liste est déjà à jour, on ne décode
+            // pas. On passe quand même par les triggers (ils ne font rien
+            // si tout est déjà traité, mais détectent par exemple les
+            // tâches en cours qui terminent).
+            loaded = items
+            didChange = false
+        }
 
         // Auto-fetch uniquement pour les URLs nouvellement apparues APRÈS le
         // premier chargement (items freshly partagés pendant que l'app tourne).
@@ -1234,7 +1720,12 @@ struct ContentView: View {
         triggerPendingAIDescriptions()
         triggerPendingOCR()
         triggerPendingAudioTranscriptions()
-        Spotlight.index(items)
+        triggerPendingPreviews()
+        // Spotlight : on ne ré-indexe QUE si les items ont effectivement
+        // changé. Sans cette garde, le timer 100 ms hammerait
+        // CSSearchableIndex 10 fois par seconde → CPU constant en
+        // background.
+        if didChange { Spotlight.index(items) }
     }
 
     private func triggerPendingAIDescriptions() {
@@ -1249,7 +1740,8 @@ struct ContentView: View {
 
         for item in items where (item.effectiveKind == "photo" || item.effectiveKind == "video")
                                 && item.aiDescribed != true
-                                && !describingIDs.contains(item.id) {
+                                && !describingIDs.contains(item.id)
+                                && !aiCallsCapped(item, provider: provider) {
             startAIDescribe(item: item, provider: provider, apiKey: apiKey, customModel: customModel)
         }
     }
@@ -1258,7 +1750,15 @@ struct ContentView: View {
         let toSave = newItems ?? items
         guard let defaults, let data = try? JSONEncoder().encode(toSave) else { return }
         defaults.set(data, forKey: StoreKeys.items)
-        WidgetCenter.shared.reloadAllTimelines()
+        // Coalesce les reloads widget : pendant un re-traitement IA on
+        // pouvait appeler `reloadAllTimelines()` des dizaines de fois par
+        // seconde, ce qui sature WidgetKit côté système. On planifie au
+        // plus un reload toutes les 2 s.
+        scheduleWidgetReload()
+    }
+
+    private func scheduleWidgetReload() {
+        WidgetReloadCoordinator.shared.schedule()
     }
 
     private func loadFolders() {
@@ -1297,7 +1797,10 @@ struct ContentView: View {
         guard name != StoreKeys.defaultFolder else { return }
         // Supprime les items de ce folder (et les fichiers sur disque le cas échéant)
         let removed = items.filter { $0.folder == name }
-        removed.forEach { removeFileIfLocal($0.url) }
+        removed.forEach {
+            removeFileIfLocal($0.url)
+            removePreviewIfAny($0)
+        }
         items.removeAll { $0.folder == name }
         folders.removeAll { $0 == name }
         saveItems()
@@ -1336,10 +1839,67 @@ struct ContentView: View {
 
     private func deleteItems(at offsets: IndexSet) {
         let removedItems = offsets.map { currentItems[$0] }
-        removedItems.forEach { removeFileIfLocal($0.url) }
+        removedItems.forEach {
+            removeFileIfLocal($0.url)
+            removePreviewIfAny($0)
+        }
         let removedIDs = Set(removedItems.map(\.id))
         items.removeAll { removedIDs.contains($0.id) }
         Spotlight.deindex(Array(removedIDs))
+        saveItems()
+    }
+
+    /// Efface les vignettes (PNG sur disque + champ `previewPath`) de
+    /// tous les items actuellement affichés. Au prochain pull-to-refresh
+    /// ou tick du timer 100 ms, `triggerPendingPreviews` les régénère.
+    /// Regénère la vignette d'un seul item : supprime le PNG sur
+    /// disque et remet `previewPath = nil` → la prochaine itération de
+    /// `triggerPendingPreviews` lance une nouvelle capture.
+    private func regeneratePreview(for item: SharedItem) {
+        removePreviewIfAny(item)
+        guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[idx].previewPath = nil
+        saveItems()
+    }
+
+    /// Regénère le texte IA d'un seul item : efface le titre IA et les
+    /// drapeaux `aiDescribed` / `ocrDone`. Le prochain cycle de
+    /// `triggerPendingAIDescriptions` (ou de transcription audio)
+    /// relance le pipeline pour cet item, sous réserve du plafond
+    /// per-item de 5 appels.
+    private func regenerateAIText(for item: SharedItem) {
+        guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[idx].title = nil
+        items[idx].aiDescribed = nil
+        items[idx].ocrDone = nil
+        saveItems()
+    }
+
+    private func clearPreviewsForCurrent() {
+        let snapshot = currentItems
+        let ids = Set(snapshot.map(\.id))
+        for item in snapshot { removePreviewIfAny(item) }
+        for idx in items.indices where ids.contains(items[idx].id) {
+            items[idx].previewPath = nil
+        }
+        saveItems()
+    }
+
+    /// Efface les textes générés par l'IA (titre IA + drapeaux
+    /// `aiDescribed` / `ocrDone`) pour les items actuellement affichés,
+    /// uniquement ceux qui ont effectivement été décrits par l'IA.
+    /// Au prochain cycle, `triggerPendingAIDescriptions` /
+    /// `triggerPendingOCR` / `triggerPendingAudioTranscriptions` les
+    /// reconstruisent (sous réserve du plafond per-item de 5 appels et
+    /// du toggle global IA).
+    private func clearAITextForCurrent() {
+        let ids = Set(currentItems.filter { $0.aiDescribed == true }.map(\.id))
+        guard !ids.isEmpty else { return }
+        for idx in items.indices where ids.contains(items[idx].id) {
+            items[idx].title = nil
+            items[idx].aiDescribed = nil
+            items[idx].ocrDone = nil
+        }
         saveItems()
     }
 
@@ -1350,7 +1910,10 @@ struct ContentView: View {
         // rien quand on était dans un smart folder (clé "smart:…").
         let removedItems = currentItems
         let removedIDs = Set(removedItems.map(\.id))
-        removedItems.forEach { removeFileIfLocal($0.url) }
+        removedItems.forEach {
+            removeFileIfLocal($0.url)
+            removePreviewIfAny($0)
+        }
         Spotlight.deindex(removedItems.map(\.id))
         items.removeAll { removedIDs.contains($0.id) }
         saveItems()
@@ -1364,6 +1927,19 @@ struct ContentView: View {
 
     private func removeFileIfLocal(_ urlString: String) {
         guard let url = URL(string: urlString), url.isFileURL else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Supprime le PNG d'aperçu associé à l'item (si présent dans
+    /// `previews/`). À appeler en complément de `removeFileIfLocal` à
+    /// chaque suppression d'item, sinon les aperçus orphelins restent
+    /// sur disque et la taille des données de l'app ne baisse pas.
+    private func removePreviewIfAny(_ item: SharedItem) {
+        guard let path = item.previewPath, !path.isEmpty,
+              let container = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: appGroup) else { return }
+        let url = container.appendingPathComponent("previews", isDirectory: true)
+            .appendingPathComponent(path)
         try? FileManager.default.removeItem(at: url)
     }
 
@@ -1411,7 +1987,10 @@ struct ContentView: View {
     private func deleteSelected() {
         let ids = selection
         let removed = items.filter { ids.contains($0.id) }
-        removed.forEach { removeFileIfLocal($0.url) }
+        removed.forEach {
+            removeFileIfLocal($0.url)
+            removePreviewIfAny($0)
+        }
         items.removeAll { ids.contains($0.id) }
         Spotlight.deindex(Array(ids))
         saveItems()
@@ -1466,6 +2045,33 @@ struct ContentView: View {
         let prefix = items[idx].title ?? URL(string: items[idx].url)?.lastPathComponent ?? items[idx].url
         items[idx].title = "\(prefix) — \(collapsed)"
         saveItems()
+    }
+
+    // MARK: - Previews (320x200)
+
+    /// Génère lazily un aperçu PNG 320x200 pour chaque item qui n'en a
+    /// pas encore. `previewPath == ""` signifie tentative déjà faite et
+    /// échouée → on ne réessaie pas.
+    private func triggerPendingPreviews() {
+        for item in items where item.previewPath == nil
+                                && item.effectiveKind != "text"
+                                && !generatingPreviewIDs.contains(item.id) {
+            startPreviewGeneration(for: item)
+        }
+    }
+
+    private func startPreviewGeneration(for item: SharedItem) {
+        generatingPreviewIDs.insert(item.id)
+        let snapshot = item
+        Task.detached(priority: .utility) {
+            let filename = await PreviewGenerator.generate(for: snapshot)
+            await MainActor.run {
+                generatingPreviewIDs.remove(snapshot.id)
+                guard let idx = items.firstIndex(where: { $0.id == snapshot.id }) else { return }
+                items[idx].previewPath = filename ?? ""
+                saveItems()
+            }
+        }
     }
 
     // MARK: - Audio transcription (speech-to-text)
@@ -1676,7 +2282,8 @@ struct ContentView: View {
             ),
             folders: folders,
             items: items,
-            files: collectFileBlobs()
+            files: collectFileBlobs(),
+            previews: collectPreviewBlobs()
         )
         do {
             let encoder = JSONEncoder()
@@ -1705,6 +2312,25 @@ struct ContentView: View {
                 filename: url.lastPathComponent,
                 base64: data.base64EncodedString()
             )
+        }
+        return blobs
+    }
+
+    /// Collecte chaque PNG d'aperçu déjà généré (sous-dossier
+    /// `previews/` du container App Group) en base64, indexé par item.id.
+    /// Permet à la sauvegarde d'être auto-suffisante : la restauration
+    /// n'aura plus à régénérer les aperçus (en particulier les captures
+    /// WebView des URLs, lentes et nécessitant le réseau).
+    private func collectPreviewBlobs() -> [String: String] {
+        var blobs: [String: String] = [:]
+        guard let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroup) else { return blobs }
+        let dir = container.appendingPathComponent("previews", isDirectory: true)
+        for item in items {
+            guard let path = item.previewPath, !path.isEmpty else { continue }
+            let url = dir.appendingPathComponent(path)
+            guard let data = try? Data(contentsOf: url) else { continue }
+            blobs[item.id] = data.base64EncodedString()
         }
         return blobs
     }
@@ -1759,7 +2385,11 @@ struct ContentView: View {
             folders = newFolders
             saveFolders()
 
-            items = restoreItems(bundle.items, files: bundle.files, into: dir, regenerateIDs: false)
+            items = restoreItems(bundle.items,
+                                 files: bundle.files,
+                                 previews: bundle.previews ?? [:],
+                                 into: dir,
+                                 regenerateIDs: false)
             saveItems()
 
             if folders.contains(bundle.settings.selectedFolder) {
@@ -1782,7 +2412,11 @@ struct ContentView: View {
         }
         saveFolders()
 
-        let merged = restoreItems(bundle.items, files: bundle.files, into: dir, regenerateIDs: true)
+        let merged = restoreItems(bundle.items,
+                                  files: bundle.files,
+                                  previews: bundle.previews ?? [:],
+                                  into: dir,
+                                  regenerateIDs: true)
         items.append(contentsOf: merged)
         saveItems()
     }
@@ -1793,14 +2427,23 @@ struct ContentView: View {
     /// éviter les collisions avec des items existants en mode merge).
     private func restoreItems(_ source: [SharedItem],
                               files: [String: BackupBundle.FileBlob],
+                              previews: [String: String],
                               into dir: URL,
                               regenerateIDs: Bool) -> [SharedItem] {
         var result = source
         let now = Int(Date().timeIntervalSince1970 * 1000)
+        let previewDir: URL? = {
+            guard let container = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: appGroup) else { return nil }
+            let d = container.appendingPathComponent("previews", isDirectory: true)
+            try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+            return d
+        }()
         for i in 0..<result.count {
             let item = result[i]
             // ID de référence pour retrouver le blob (avant régénération).
             let blob = files[item.id]
+            let previewBase64 = previews[item.id]
             if regenerateIDs {
                 let copy = SharedItem(
                     id: UUID().uuidString,
@@ -1818,9 +2461,23 @@ struct ContentView: View {
                     lastSeenModifiedAt: item.lastSeenModifiedAt,
                     originalURL: item.originalURL,
                     note: item.note,
-                    ocrDone: item.ocrDone
+                    ocrDone: item.ocrDone,
+                    previewPath: nil,
+                    aiCallsCount: item.aiCallsCount
                 )
                 result[i] = copy
+            }
+            // Restauration de l'aperçu : on l'écrit sous le nouvel ID.
+            if let b64 = previewBase64, let pdir = previewDir,
+               let pdata = Data(base64Encoded: b64) {
+                let pname = "\(result[i].id).png"
+                let pdest = pdir.appendingPathComponent(pname)
+                do {
+                    try pdata.write(to: pdest, options: .atomic)
+                    result[i].previewPath = pname
+                } catch {
+                    print("Restore preview write error: \(error)")
+                }
             }
             guard let blob = blob, let data = Data(base64Encoded: blob.base64) else { continue }
             let safeName = "\(now)-\(i)_\(blob.filename)"
@@ -1843,8 +2500,14 @@ struct ContentView: View {
     ///   la date), soit `modifiedAt > lastSeenModifiedAt` (la page a une
     ///   version plus récente que lors de la dernière ouverture).
     private func isUnread(_ item: SharedItem) -> Bool {
-        guard item.effectiveKind == "url",
-              let mod = item.modifiedAt else { return false }
+        // Tous les types d'objets supportent désormais l'état non-lu.
+        // Pour les URL la `modifiedAt` provient du Last-Modified HTTP ;
+        // pour les autres types elle est posée par le Share Extension
+        // au moment du partage (date de dernière modif POSIX pour un
+        // fichier/photo/vidéo/audio, instant du partage pour un texte).
+        // Tant qu'on ne « voit » pas l'item (markAsSeen via tap),
+        // lastSeenModifiedAt reste nil → unread = true.
+        guard let mod = item.modifiedAt else { return false }
         guard let seen = item.lastSeenModifiedAt else { return true }
         return mod > seen
     }
@@ -1852,6 +2515,37 @@ struct ContentView: View {
     /// Appelé quand l'utilisateur ouvre une URL : on mémorise la date vue
     /// pour ne plus marquer l'item comme "nouveau" jusqu'à la prochaine
     /// modification remotelement détectée.
+    /// Action déclenchée par un tap sur un item, qu'il vienne de la liste
+    /// principale ou de la grille d'aperçus : ouvre QuickLook pour les
+    /// fichiers/photos/vidéos/audios, l'aperçu texte pour le texte, et
+    /// Safari plein écran pour les URLs (en marquant l'item comme lu).
+    private func openItem(_ item: SharedItem) {
+        // Si on est en edit mode, ne rien faire : le tap est destiné à
+        // modifier la sélection, géré par le List(selection:).
+        if editMode?.wrappedValue.isEditing == true { return }
+        // Sortie d'edit mode propre : si une sélection résiduelle existe
+        // hors edit mode, iOS peut intercepter les taps comme « toggle
+        // selection » au lieu de les laisser passer à .onTapGesture.
+        // On vide donc la sélection résiduelle au premier tap.
+        if !selection.isEmpty {
+            selection.removeAll()
+        }
+        let kind = item.effectiveKind
+        let linkURL: URL? = URL(string: item.url)
+        // Marquer comme lu pour TOUS les types d'objets, plus seulement
+        // les URL : ouvrir un fichier / une photo / une vidéo / un
+        // audio / un texte enlève aussi le gras + bordeaux.
+        markAsSeen(itemID: item.id)
+        switch kind {
+        case "file", "photo", "video", "audio":
+            if let link = linkURL { previewFileURL = link }
+        case "text":
+            textToPreview = TextPreviewPayload(text: item.url, title: item.title)
+        default:
+            if let link = linkURL { safariFullScreenURL = link }
+        }
+    }
+
     private func markAsSeen(itemID: String) {
         guard let idx = items.firstIndex(where: { $0.id == itemID }),
               let mod = items[idx].modifiedAt else { return }
@@ -1874,6 +2568,18 @@ struct ContentView: View {
     // MARK: - AI image description
 
     private func startAIDescribe(item: SharedItem, provider: String, apiKey: String, customModel: String) {
+        // On ne compte QUE les providers cloud (OpenAI / Anthropic) ; les
+        // appels Apple Intelligence (on-device Vision) sont exempts.
+        if provider != "apple" {
+            recordAICall()
+            // Incrémente le compteur per-item (plafond : 5 appels). Le
+            // plafond est respecté par le check préalable dans
+            // `triggerPendingAIDescriptions`.
+            if let idx = items.firstIndex(where: { $0.id == item.id }) {
+                items[idx].aiCallsCount = (items[idx].aiCallsCount ?? 0) + 1
+                saveItems()
+            }
+        }
         describingIDs.insert(item.id)
         let id = item.id
         let urlString = item.url
@@ -1887,6 +2593,30 @@ struct ContentView: View {
                 updateItemAfterAIDescribe(id: id, description: description, provider: provider)
             }
         }
+    }
+
+    /// Plafond per-item : au-delà de 5 appels IA cloud, on n'invoque plus
+    /// pour cet item, l'utilisateur peut réinitialiser via le menu
+    /// contextuel. Apple Intelligence (provider == "apple") n'est jamais
+    /// plafonné car ne consomme aucun crédit.
+    static let aiCallsLimit = 5
+    private func aiCallsCapped(_ item: SharedItem, provider: String) -> Bool {
+        guard provider != "apple" else { return false }
+        return (item.aiCallsCount ?? 0) >= Self.aiCallsLimit
+    }
+    /// Vrai si la limite est atteinte indépendamment du provider courant
+    /// — sert à afficher l'avertissement dans la ligne (l'item a accumulé
+    /// 5 appels même si l'utilisateur a entre-temps changé de provider).
+    private func aiCallsHardCapped(_ item: SharedItem) -> Bool {
+        return (item.aiCallsCount ?? 0) >= Self.aiCallsLimit
+    }
+    private func resetItemAICalls(_ item: SharedItem) {
+        guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[idx].aiCallsCount = 0
+        // Réautorise un nouveau cycle d'IA en réinitialisant aussi le
+        // drapeau « tentative déjà faite ».
+        items[idx].aiDescribed = nil
+        saveItems()
     }
 
     private func updateItemAfterAIDescribe(id: String, description: String?, provider: String) {
@@ -2039,7 +2769,19 @@ struct ContentView: View {
                   let text = first["text"] as? String else {
                 return nil
             }
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Compteurs : on lit les VRAIS tokens facturés depuis
+            // `usage.input_tokens` / `usage.output_tokens` (Anthropic
+            // Messages API). Si le champ est absent (formats anciens),
+            // on enregistre 0 plutôt qu'une estimation fantaisiste.
+            let usage = json["usage"] as? [String: Any]
+            let inT = (usage?["input_tokens"] as? Int) ?? 0
+            let outT = (usage?["output_tokens"] as? Int) ?? 0
+            await MainActor.run {
+                AICounters.record(provider: "anthropic", model: model,
+                                  tokensIn: inT, tokensOut: outT)
+            }
+            return trimmed
         } catch {
             print("Anthropic error: \(error.localizedDescription)")
             return nil
@@ -2083,7 +2825,17 @@ struct ContentView: View {
                   let content = message["content"] as? String else {
                 return nil
             }
-            return content.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Compteurs : `usage.prompt_tokens` / `completion_tokens`
+            // sont les vrais tokens facturés par l'API OpenAI.
+            let usage = json["usage"] as? [String: Any]
+            let inT = (usage?["prompt_tokens"] as? Int) ?? 0
+            let outT = (usage?["completion_tokens"] as? Int) ?? 0
+            await MainActor.run {
+                AICounters.record(provider: "openai", model: model,
+                                  tokensIn: inT, tokensOut: outT)
+            }
+            return trimmed
         } catch {
             print("OpenAI error: \(error.localizedDescription)")
             return nil
@@ -2107,7 +2859,7 @@ struct ContentView: View {
                 } else if resolving || item.placeName == nil {
                     Text("Fetching location…")
                         .font(.caption2)
-                        .opacity(blinkPhase ? 1.0 : 0.35)
+                        .blinking()
                 }
                 // Si placeName == "" : échec définitif, on n'affiche rien
                 // après l'icône (ligne reste mais vide). On peut aussi la
@@ -2178,7 +2930,7 @@ struct ContentView: View {
             if fetching {
                 Text("Fetching date…")
                     .font(.caption2)
-                    .opacity(blinkPhase ? 1.0 : 0.35)
+                    .blinking()
             } else if let d = item.modifiedAt {
                 Text(Self.dateFormatter.string(from: Date(timeIntervalSince1970: d)))
                     .font(.caption2)
@@ -2187,7 +2939,7 @@ struct ContentView: View {
                 // une ligne (placeholder clignotant) pour garder un layout stable.
                 Text("Fetching date…")
                     .font(.caption2)
-                    .opacity(blinkPhase ? 1.0 : 0.35)
+                    .blinking()
             }
         }
         .foregroundColor(.secondary)
@@ -2224,7 +2976,18 @@ struct ContentView: View {
 
     private func updateItemModifiedAt(id: String, to date: Date) {
         guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
-        items[idx].modifiedAt = date.timeIntervalSince1970
+        let newTimestamp = date.timeIntervalSince1970
+        let oldModified = items[idx].modifiedAt
+        items[idx].modifiedAt = newTimestamp
+        // Si la page a évolué côté serveur (Last-Modified strictement plus
+        // récent que ce qu'on avait) et qu'un aperçu existait déjà → on le
+        // réinitialise pour forcer une nouvelle capture WebView. Le nil
+        // déclenchera triggerPendingPreviews au prochain loadItems.
+        if items[idx].effectiveKind == "url",
+           let old = oldModified, newTimestamp > old,
+           items[idx].previewPath != nil {
+            items[idx].previewPath = nil
+        }
         saveItems()
     }
 
@@ -2293,6 +3056,12 @@ struct ContentView: View {
     /// spinner de pull-to-refresh reste affiché jusqu'à la fin.
     @MainActor
     private func pullToRefreshDates() async {
+        showRefreshAnnouncement()
+        // Aussi : on retente la génération des aperçus pour lesquels
+        // une tentative précédente a échoué (previewPath == ""). On
+        // remet leur path à nil et triggerPendingPreviews relancera la
+        // génération au prochain cycle.
+        retryFailedPreviews()
         if let existing = refreshTask {
             await existing.value
             return
@@ -2306,6 +3075,24 @@ struct ContentView: View {
         refreshTask = nil
     }
 
+    private func retryFailedPreviews() {
+        // Idem refresh des dates URL : on travaille sur une copie locale
+        // pour ne déclencher qu'UNE seule réassignation de @State, donc
+        // une seule re-évaluation du body de ContentView (sinon les
+        // Menus de la toolbar clignotent).
+        var newItems = items
+        var changed = false
+        for idx in newItems.indices where newItems[idx].previewPath == "" {
+            newItems[idx].previewPath = nil
+            changed = true
+        }
+        if changed {
+            items = newItems
+            saveItems()
+        }
+        triggerPendingPreviews()
+    }
+
     private func toggleRefreshAllDates() {
         if let task = refreshTask {
             task.cancel()
@@ -2313,6 +3100,11 @@ struct ContentView: View {
             // Nettoyer les marqueurs fetching restants
             fetchingDateIDs.removeAll()
         } else {
+            // Comportement strictement identique au pull-to-refresh :
+            // overlay d'annonce + retry des aperçus en échec + refresh
+            // des dates URL.
+            showRefreshAnnouncement()
+            retryFailedPreviews()
             refreshTask = Task { @MainActor in
                 await refreshAllURLDates()
                 refreshTask = nil
@@ -2324,10 +3116,20 @@ struct ContentView: View {
     private func refreshAllURLDates() async {
         // Snapshot des URLs au moment du lancement.
         let urlItems = items.filter { $0.effectiveKind == "url" }
+        let allIDs = Set(urlItems.map(\.id))
+
+        // Une SEULE mutation @State pour marquer toutes les URLs comme
+        // « en cours de fetch ». Sans ça, on faisait .insert puis
+        // .remove pour chaque URL → 2 re-renders/URL → toolbar (et ses
+        // Menus) clignotait pendant tout le refresh.
+        fetchingDateIDs.formUnion(allIDs)
+
+        // Buffer LOCAL de TOUS les résultats (pas du @State). Aucune
+        // re-render pendant la collecte.
+        var pendingDates: [(id: String, date: Date)] = []
+
         for chunk in urlItems.chunked(into: 4) {
             if Task.isCancelled { break }
-            // Marque tout le chunk comme « en cours »
-            for it in chunk { fetchingDateIDs.insert(it.id) }
             await withTaskGroup(of: (String, Date?).self) { group in
                 for it in chunk {
                     let id = it.id
@@ -2338,20 +3140,46 @@ struct ContentView: View {
                     }
                 }
                 for await (id, maybeDate) in group {
-                    fetchingDateIDs.remove(id)
                     if let maybeDate {
-                        updateItemModifiedAt(id: id, to: maybeDate)
+                        pendingDates.append((id, maybeDate))
                     } else if let item = items.first(where: { $0.id == id }),
                               item.modifiedAt == nil {
-                        // Échec + aucune valeur antérieure : on évite un
-                        // placeholder clignotant permanent en retombant sur
-                        // la date de partage (comme `startFetchLastModified`).
-                        updateItemModifiedAt(id: id, to: Date(timeIntervalSince1970: item.timestamp))
+                        pendingDates.append((id, Date(timeIntervalSince1970: item.timestamp)))
                     }
-                    // Sinon (échec avec ancienne valeur) : on conserve.
                 }
             }
         }
+
+        // Une SEULE mutation @State à la fin pour libérer le set des
+        // « en cours », même chose pour `items` via le batch. Total
+        // côté @State pour tout le refresh : 2 mutations (au lieu de
+        // ~3 × N).
+        fetchingDateIDs.subtract(allIDs)
+        if !pendingDates.isEmpty {
+            applyDateUpdatesBatch(pendingDates)
+        }
+    }
+
+    /// Applique en lot plusieurs `updateItemModifiedAt` : modifie une
+    /// COPIE locale de `items`, puis assigne UNE SEULE FOIS le tableau
+    /// résultant à `@State items`. Une seule re-évaluation du body de
+    /// ContentView par chunk → la toolbar reste stable pendant un
+    /// refresh massif.
+    private func applyDateUpdatesBatch(_ updates: [(id: String, date: Date)]) {
+        var newItems = items
+        for (id, date) in updates {
+            guard let idx = newItems.firstIndex(where: { $0.id == id }) else { continue }
+            let newTimestamp = date.timeIntervalSince1970
+            let oldModified = newItems[idx].modifiedAt
+            newItems[idx].modifiedAt = newTimestamp
+            if newItems[idx].effectiveKind == "url",
+               let old = oldModified, newTimestamp > old,
+               newItems[idx].previewPath != nil {
+                newItems[idx].previewPath = nil
+            }
+        }
+        items = newItems
+        saveItems()
     }
 
     // MARK: - Title fetching
@@ -2557,20 +3385,23 @@ struct BackupShareSheet: UIViewControllerRepresentable {
 struct FilterToolbarBackground: ViewModifier {
     let active: Bool
     func body(content: Content) -> some View {
-        if active {
-            content
-                .toolbarBackground(
-                    LinearGradient(
-                        colors: [Color.blue.opacity(0.22), Color.blue.opacity(0.16)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    for: .navigationBar
-                )
-                .toolbarBackground(.visible, for: .navigationBar)
-        } else {
-            content
-        }
+        // Toujours appliquer les MÊMES modifiers (même structure de vue)
+        // pour ne pas faire de switch entre deux arbres de vues distincts
+        // — SwiftUI reconstruit alors la nav bar UIKit à chaque re-render
+        // du parent, ce qui fait clignoter les Menus à l'intérieur. On
+        // varie uniquement les VALEURS des modifiers.
+        content
+            .toolbarBackground(
+                LinearGradient(
+                    colors: active
+                        ? [Color.blue.opacity(0.22), Color.blue.opacity(0.16)]
+                        : [Color.clear, Color.clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                for: .navigationBar
+            )
+            .toolbarBackground(active ? .visible : .automatic, for: .navigationBar)
     }
 }
 
@@ -2794,4 +3625,1003 @@ struct QuickLookPreview: UIViewControllerRepresentable {
 
         @objc func doneTapped() { parent.onDismiss() }
     }
+}
+
+// MARK: - Preview generation (320x200 PNG)
+
+/// Génère un aperçu uniforme 320x200 pour chaque item partagé. L'image
+/// finale est toujours en 320x200 ; l'objet d'origine est redimensionné
+/// pour rentrer dedans en conservant son ratio, et le reste de la toile
+/// est laissé transparent.
+///
+/// Traitement par type d'objet :
+/// - **photo** : chargement direct de l'UIImage, scale "aspect fit" dans
+///   la toile, pas de transformation supplémentaire.
+/// - **video** : extraction de la première frame via
+///   `AVAssetImageGenerator` (orientation respectée), puis même rendu
+///   "aspect fit" que pour une photo.
+/// - **audio** : icône `waveform` de SF Symbols rendue centrée sur fond
+///   transparent (pas de waveform réel pour rester rapide et hors-ligne).
+/// - **text** : les premières ~120 caractères dessinés sur fond
+///   transparent en font système 12pt, alignés en haut-gauche avec
+///   marge.
+/// - **file** : icône `doc.fill` SF Symbol centrée + nom de fichier
+///   tronqué dessous.
+/// - **url** : tente d'abord de récupérer l'image OpenGraph (`og:image`
+///   ou `twitter:image`) du HTML — si trouvée, rendue en aspect-fit ;
+///   sinon le titre + l'hôte sont dessinés en texte sur fond
+///   transparent (icône globe en filigrane).
+enum PreviewGenerator {
+    static let size = CGSize(width: 320, height: 200)
+
+    /// Renvoie le nom de fichier (sans chemin) du PNG sauvegardé dans
+    /// `previews/` du container App Group, ou nil en cas d'échec.
+    static func generate(for item: SharedItem) async -> String? {
+        let kind = item.effectiveKind
+        let image: UIImage?
+        switch kind {
+        case "photo":
+            image = renderPhoto(urlString: item.url)
+        case "video":
+            image = renderVideo(urlString: item.url)
+        case "audio":
+            image = renderSymbol("waveform", color: .systemTeal)
+        case "text":
+            image = renderText(item.url)
+        case "file":
+            image = renderFile(urlString: item.url, title: item.title)
+        default: // "url"
+            let raw = item.originalURL ?? item.url
+            // Cas spécial YouTube : on récupère directement la miniature
+            // publique (img.youtube.com/vi/<id>/maxresdefault.jpg). Pas de
+            // cookies, pas de bannière de consentement, pas d'erreur 153
+            // sur les vidéos qui bloquent l'embed.
+            if let ytThumb = await fetchYouTubeThumbnail(urlString: raw) {
+                image = scaleAspectFit(image: ytThumb)
+            } else if let snap = await renderWebPage(urlString: raw) {
+                image = snap
+            } else {
+                image = renderURLPlaceholder(title: item.title, url: raw)
+            }
+        }
+        guard let img = image else { return nil }
+        return savePNG(img, id: item.id)
+    }
+
+    private static func renderPhoto(urlString: String) -> UIImage? {
+        guard let url = URL(string: urlString), url.isFileURL,
+              let data = try? Data(contentsOf: url),
+              let img = UIImage(data: data) else { return nil }
+        return scaleAspectFit(image: img)
+    }
+
+    private static func renderVideo(urlString: String) -> UIImage? {
+        guard let url = URL(string: urlString), url.isFileURL else { return nil }
+        let asset = AVURLAsset(url: url)
+        let gen = AVAssetImageGenerator(asset: asset)
+        gen.appliesPreferredTrackTransform = true
+        gen.requestedTimeToleranceBefore = .zero
+        gen.requestedTimeToleranceAfter = CMTime(seconds: 1, preferredTimescale: 600)
+        guard let cg = try? gen.copyCGImage(at: .zero, actualTime: nil) else { return nil }
+        return scaleAspectFit(image: UIImage(cgImage: cg))
+    }
+
+    private static func renderSymbol(_ systemName: String, color: UIColor) -> UIImage {
+        let cfg = UIImage.SymbolConfiguration(pointSize: 96, weight: .regular)
+        let symbol = UIImage(systemName: systemName, withConfiguration: cfg)?
+            .withTintColor(color, renderingMode: .alwaysOriginal)
+        return blankCanvas { ctx in
+            if let s = symbol {
+                let ratio = min(140 / s.size.width, 140 / s.size.height)
+                let w = s.size.width * ratio
+                let h = s.size.height * ratio
+                let rect = CGRect(x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h)
+                s.draw(in: rect)
+            }
+            _ = ctx
+        }
+    }
+
+    private static func renderText(_ raw: String) -> UIImage {
+        let trimmed = String(raw.prefix(160))
+        return blankCanvas { _ in
+            let style = NSMutableParagraphStyle()
+            style.lineBreakMode = .byTruncatingTail
+            style.alignment = .left
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 13, weight: .regular),
+                .foregroundColor: UIColor.label,
+                .paragraphStyle: style
+            ]
+            let inset: CGFloat = 12
+            let rect = CGRect(x: inset, y: inset,
+                              width: size.width - 2 * inset,
+                              height: size.height - 2 * inset)
+            (trimmed as NSString).draw(with: rect,
+                                       options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                                       attributes: attrs,
+                                       context: nil)
+        }
+    }
+
+    private static func renderFile(urlString: String, title: String?) -> UIImage {
+        let cfg = UIImage.SymbolConfiguration(pointSize: 90, weight: .regular)
+        let icon = UIImage(systemName: "doc.fill", withConfiguration: cfg)?
+            .withTintColor(.systemBlue, renderingMode: .alwaysOriginal)
+        let label = title ?? URL(string: urlString)?.lastPathComponent ?? "file"
+        return blankCanvas { _ in
+            if let icon = icon {
+                let r = CGRect(x: (size.width - 90) / 2, y: 30, width: 90, height: 110)
+                icon.draw(in: r)
+            }
+            let style = NSMutableParagraphStyle()
+            style.alignment = .center
+            style.lineBreakMode = .byTruncatingMiddle
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 12),
+                .foregroundColor: UIColor.label,
+                .paragraphStyle: style
+            ]
+            let rect = CGRect(x: 8, y: 150, width: size.width - 16, height: 40)
+            (label as NSString).draw(with: rect,
+                                     options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                                     attributes: attrs,
+                                     context: nil)
+        }
+    }
+
+    private static func renderURLPlaceholder(title: String?, url: String) -> UIImage {
+        let host = URL(string: url)?.host ?? url
+        let main = title ?? host
+        let cfg = UIImage.SymbolConfiguration(pointSize: 70, weight: .regular)
+        let globe = UIImage(systemName: "globe", withConfiguration: cfg)?
+            .withTintColor(.systemGreen.withAlphaComponent(0.35), renderingMode: .alwaysOriginal)
+        return blankCanvas { _ in
+            if let g = globe {
+                let r = CGRect(x: size.width - 86, y: size.height - 86, width: 70, height: 70)
+                g.draw(in: r)
+            }
+            let titleAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 14, weight: .semibold),
+                .foregroundColor: UIColor.label
+            ]
+            let titleStyle = NSMutableParagraphStyle()
+            titleStyle.lineBreakMode = .byTruncatingTail
+            var titleAttrs2 = titleAttrs
+            titleAttrs2[.paragraphStyle] = titleStyle
+            (main as NSString).draw(with: CGRect(x: 12, y: 12, width: size.width - 24, height: 80),
+                                    options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                                    attributes: titleAttrs2,
+                                    context: nil)
+            let hostAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 11),
+                .foregroundColor: UIColor.secondaryLabel
+            ]
+            (host as NSString).draw(at: CGPoint(x: 12, y: size.height - 28), withAttributes: hostAttrs)
+        }
+    }
+
+    /// Extrait l'identifiant vidéo YouTube d'une URL si possible.
+    /// Supporte youtube.com/watch?v=, youtu.be/, youtube.com/embed/,
+    /// youtube.com/shorts/, et la variante interne yout-ube.com.
+    static func extractYouTubeID(_ urlString: String) -> String? {
+        guard let url = URL(string: urlString),
+              let host = url.host?.lowercased() else { return nil }
+        if host == "youtu.be" {
+            let id = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            return id.isEmpty ? nil : id
+        }
+        if host.hasSuffix("youtube.com") || host.hasSuffix("yout-ube.com") {
+            if url.path == "/watch",
+               let comp = URLComponents(url: url, resolvingAgainstBaseURL: false),
+               let v = comp.queryItems?.first(where: { $0.name == "v" })?.value {
+                return v
+            }
+            for prefix in ["/embed/", "/shorts/", "/v/"] {
+                if url.path.hasPrefix(prefix) {
+                    return String(url.path.dropFirst(prefix.count))
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Récupère la miniature haute résolution d'une vidéo YouTube depuis
+    /// `img.youtube.com/vi/<id>/...`. Aucun cookie, aucune session.
+    /// Tente d'abord `maxresdefault.jpg` (1280×720), sinon `hqdefault.jpg`
+    /// (480×360) qui est garanti pour toute vidéo publique.
+    static func fetchYouTubeThumbnail(urlString: String) async -> UIImage? {
+        guard let id = extractYouTubeID(urlString) else { return nil }
+        let candidates = [
+            "https://img.youtube.com/vi/\(id)/maxresdefault.jpg",
+            "https://img.youtube.com/vi/\(id)/hqdefault.jpg"
+        ]
+        for thumb in candidates {
+            guard let url = URL(string: thumb) else { continue }
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 8
+            if let (data, response) = try? await URLSession.shared.data(for: req),
+               let http = response as? HTTPURLResponse, http.statusCode == 200,
+               data.count > 2000, // YouTube renvoie une mini placeholder ~1.5KB en cas d'absence
+               let img = UIImage(data: data) {
+                return img
+            }
+        }
+        return nil
+    }
+
+    /// Réécrit une URL YouTube vers le domaine `youtube-nocookie.com`
+    /// pour la capture d'aperçu : pas de cookies, pas de bandeau de
+    /// consentement RGPD, donc une miniature plus propre. Les URLs non
+    /// YouTube sont renvoyées telles quelles.
+    static func rewriteYouTubeNoCookie(_ urlString: String) -> String {
+        guard let url = URL(string: urlString),
+              let host = url.host?.lowercased() else { return urlString }
+        // youtu.be/<id> → youtube-nocookie.com/embed/<id>
+        if host == "youtu.be" {
+            let id = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if !id.isEmpty {
+                return "https://www.youtube-nocookie.com/embed/\(id)"
+            }
+        }
+        // youtube.com/watch?v=<id> → youtube-nocookie.com/embed/<id>
+        if host.hasSuffix("youtube.com") || host.hasSuffix("yout-ube.com") {
+            if url.path == "/watch",
+               let comp = URLComponents(url: url, resolvingAgainstBaseURL: false),
+               let v = comp.queryItems?.first(where: { $0.name == "v" })?.value {
+                return "https://www.youtube-nocookie.com/embed/\(v)"
+            }
+            // youtube.com/embed/<id> → youtube-nocookie.com/embed/<id>
+            if url.path.hasPrefix("/embed/") {
+                return "https://www.youtube-nocookie.com\(url.path)"
+            }
+            // youtube.com/shorts/<id> → youtube-nocookie.com/embed/<id>
+            if url.path.hasPrefix("/shorts/") {
+                let id = String(url.path.dropFirst("/shorts/".count))
+                if !id.isEmpty {
+                    return "https://www.youtube-nocookie.com/embed/\(id)"
+                }
+            }
+        }
+        return urlString
+    }
+
+    /// Charge la page web dans un WKWebView hors écran, attend la fin du
+    /// chargement (avec un délai de grâce pour laisser les CSS/images
+    /// s'appliquer) puis prend un cliché du haut de la page (1024×640).
+    /// Le cliché est ensuite scaled aspect-fit dans 320×200. Renvoie nil
+    /// si le chargement échoue ou que la capture n'aboutit pas.
+    @MainActor
+    static func renderWebPage(urlString: String) async -> UIImage? {
+        guard let url = URL(string: urlString),
+              url.scheme == "http" || url.scheme == "https" else { return nil }
+
+        // SÉRIALISATION : un seul rendu WKWebView à la fois pour toute
+        // l'app. Sans cette sérialisation, plusieurs `Task.detached`
+        // lancées en parallèle par `triggerPendingPreviews` créaient des
+        // WKWebView en concurrence et les ajoutaient ensemble à la
+        // keyWindow → WebKit/UIKit crashait dans `objc_setAssociatedObject`
+        // pendant les `commitLayerTree` simultanés (EXC_BAD_ACCESS dans
+        // `_addSubview:positioned:relativeTo:`).
+        await WebPageRenderSemaphore.shared.acquire()
+        defer { WebPageRenderSemaphore.shared.release() }
+
+        // Rendu en haute résolution puis réduit en aspect-fit avec
+        // interpolation .high → évite l'effet d'escalier visible quand on
+        // resize une petite capture vers une vue zoomée.
+        let viewportSize = CGSize(width: 1920, height: 1200)
+        let config = WKWebViewConfiguration()
+        let offscreenFrame = CGRect(x: -40_000, y: -40_000,
+                                    width: viewportSize.width,
+                                    height: viewportSize.height)
+        let webView = WKWebView(frame: offscreenFrame, configuration: config)
+        webView.isOpaque = true
+        webView.backgroundColor = .white
+
+        let host = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene) }
+            .first?.windows.first { $0.isKeyWindow }
+        host?.addSubview(webView)
+
+        let delegate = WebPreviewLoadDelegate()
+        webView.navigationDelegate = delegate
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 12
+        webView.load(req)
+
+        let loaded = await delegate.waitForFinish(timeout: 12)
+
+        var bigSnapshot: UIImage? = nil
+        if loaded {
+            // Délai supplémentaire pour laisser les images / fonts /
+            // animations CSS se stabiliser avant la capture.
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+
+            let snap = WKSnapshotConfiguration()
+            snap.rect = CGRect(origin: .zero, size: viewportSize)
+
+            // takeSnapshot peut ne JAMAIS rappeler son completion si le
+            // WebContent process plante en arrière-plan. Sans timeout,
+            // on hang ad vitam dans cet `await`, le `defer` qui libère
+            // le sémaphore ne s'exécute pas, et toutes les
+            // regénérations d'URL suivantes restent bloquées en file.
+            // On wrap dans un timeout de 10 s.
+            bigSnapshot = await withSnapshotTimeout(seconds: 10) {
+                await withCheckedContinuation { cont in
+                    webView.takeSnapshot(with: snap) { image, _ in
+                        cont.resume(returning: image)
+                    }
+                }
+            }
+        }
+
+        // Détacher proprement le delegate AVANT removeFromSuperview pour
+        // éviter qu'un commitLayerTree en cours appelle un délégué dont
+        // la durée de vie est terminée.
+        webView.navigationDelegate = nil
+        webView.stopLoading()
+        webView.removeFromSuperview()
+        // Petit délai pour laisser WebKit finaliser ses layer commits
+        // avant qu'on libère la sémaphore et qu'un nouveau WKWebView soit
+        // créé.
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
+        guard let big = bigSnapshot else { return nil }
+        return scaleAspectFit(image: big)
+    }
+
+    /// Wraps an async UIImage-returning operation with a timeout. If
+    /// the operation doesn't complete within `seconds`, returns nil so
+    /// the caller can clean up and not stay suspended forever.
+    @MainActor
+    static func withSnapshotTimeout(seconds: TimeInterval,
+                                    operation: @escaping () async -> UIImage?) async -> UIImage? {
+        await withTaskGroup(of: UIImage?.self) { group in
+            group.addTask { await operation() }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return nil
+            }
+            // Premier résultat = soit l'image, soit nil (timeout).
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
+    /// Sémaphore async qui sérialise les rendus WKWebView. Un seul
+    /// rendu en cours à la fois pour toute l'app. Implémenté avec
+    /// `NSLock` (et non pas un `actor`) pour que `release()` soit
+    /// SYNCHRONE → utilisable depuis `defer { }` sans `await`.
+    final class WebPageRenderSemaphore {
+        static let shared = WebPageRenderSemaphore()
+        private let lock = NSLock()
+        private var inUse: Bool = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        func acquire() async {
+            lock.lock()
+            if !inUse {
+                inUse = true
+                lock.unlock()
+                return
+            }
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                waiters.append(cont)
+                lock.unlock()
+            }
+        }
+
+        func release() {
+            lock.lock()
+            if !waiters.isEmpty {
+                let c = waiters.removeFirst()
+                lock.unlock()
+                c.resume()
+            } else {
+                inUse = false
+                lock.unlock()
+            }
+        }
+    }
+
+    /// Récupère la balise OpenGraph image d'une page web. Renvoie nil
+    /// silencieusement en cas d'erreur, taille > 4 MB, etc.
+    private static func fetchOpenGraphImage(urlString: String) async -> UIImage? {
+        guard let url = URL(string: urlString),
+              url.scheme == "http" || url.scheme == "https" else { return nil }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        req.setValue("Mozilla/5.0 (compatible; ShareManager/1.0)", forHTTPHeaderField: "User-Agent")
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let html = String(data: data.prefix(200_000), encoding: .utf8) else { return nil }
+        let candidates = ["property=\"og:image\"", "name=\"twitter:image\"", "property=\"og:image:url\""]
+        for marker in candidates {
+            if let range = html.range(of: marker) {
+                let after = html[range.upperBound...]
+                if let contentRange = after.range(of: "content=\"") {
+                    let rest = after[contentRange.upperBound...]
+                    if let endQuote = rest.firstIndex(of: "\"") {
+                        let imgURLString = String(rest[..<endQuote])
+                        if let imgURL = URL(string: imgURLString, relativeTo: url),
+                           let (imgData, _) = try? await URLSession.shared.data(from: imgURL),
+                           imgData.count < 4_000_000,
+                           let img = UIImage(data: imgData) {
+                            return img
+                        }
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func scaleAspectFit(image: UIImage) -> UIImage {
+        let imgSize = image.size
+        guard imgSize.width > 0, imgSize.height > 0 else { return blankCanvas { _ in } }
+        let ratio = min(size.width / imgSize.width, size.height / imgSize.height)
+        let drawSize = CGSize(width: imgSize.width * ratio, height: imgSize.height * ratio)
+        let origin = CGPoint(x: (size.width - drawSize.width) / 2,
+                             y: (size.height - drawSize.height) / 2)
+        return blankCanvas { ctx in
+            // Interpolation haute qualité (Lanczos-like) pour éviter le
+            // crénelage / pixelisation lors du downscale d'une capture HD.
+            ctx.interpolationQuality = .high
+            ctx.setShouldAntialias(true)
+            image.draw(in: CGRect(origin: origin, size: drawSize))
+        }
+    }
+
+    /// Tous les rendus passent par cette fonction. On hop sur le main
+    /// thread via `DispatchQueue.main.sync` quand on est en arrière-plan,
+    /// car les APIs UIKit appelées dans la closure `draw`
+    /// (`NSString.draw(with:)`, `UIImage(systemName:)`,
+    /// `UIImage.draw(in:)`) ont en pratique une thread-affinity main
+    /// thread sur iOS 17/18 — appeler depuis une `Task.detached`
+    /// pouvait corrompre l'état interne UIKit et crasher dans
+    /// `renderer.image` (EXC_BAD_ACCESS). Le `Task.detached` continue
+    /// de tourner en background pour le reste (extraction frame vidéo,
+    /// fetch HTTP, etc.) ; seule la phase finale de rendu est ramenée
+    /// sur le main thread.
+    private static func blankCanvas(_ draw: (CGContext) -> Void) -> UIImage {
+        if Thread.isMainThread {
+            return renderImage(draw: draw)
+        }
+        return DispatchQueue.main.sync {
+            renderImage(draw: draw)
+        }
+    }
+
+    private static func renderImage(draw: (CGContext) -> Void) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        // PNG pixel scale = 3× → image stockée 960×600 pixels (logique
+        // 320×200) → reste nette même quand l'utilisateur zoome.
+        format.scale = 3
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { rctx in
+            let ctx = rctx.cgContext
+            ctx.interpolationQuality = .high
+            ctx.setShouldAntialias(true)
+            draw(ctx)
+        }
+    }
+
+    private static func savePNG(_ image: UIImage, id: String) -> String? {
+        guard let png = image.pngData() else { return nil }
+        let fm = FileManager.default
+        guard let container = fm.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.net.fenyo.apple.sharemanager") else {
+            return nil
+        }
+        let dir = container.appendingPathComponent("previews", isDirectory: true)
+        if !fm.fileExists(atPath: dir.path) {
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        let filename = "\(id).png"
+        let dest = dir.appendingPathComponent(filename)
+        do {
+            try png.write(to: dest, options: .atomic)
+            return filename
+        } catch {
+            print("Preview save failed: \(error)")
+            return nil
+        }
+    }
+
+    /// Charge un aperçu déjà généré depuis le sous-dossier `previews/`.
+    static func loadPreview(filename: String) -> UIImage? {
+        guard !filename.isEmpty,
+              let container = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: "group.net.fenyo.apple.sharemanager") else {
+            return nil
+        }
+        let url = container.appendingPathComponent("previews", isDirectory: true)
+            .appendingPathComponent(filename)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return UIImage(data: data)
+    }
+}
+
+/// Délégué `WKNavigationDelegate` minimal qui expose une attente
+/// asynchrone (`waitForFinish`) résolue à `didFinish` ou `didFail`,
+/// ou par timeout. Utilisé pour le rendu offscreen des aperçus de pages
+/// web.
+@MainActor
+final class WebPreviewLoadDelegate: NSObject, WKNavigationDelegate {
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var resolved = false
+
+    func waitForFinish(timeout: TimeInterval) async -> Bool {
+        await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            self.continuation = cont
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                self?.resolve(false)
+            }
+        }
+    }
+
+    private func resolve(_ value: Bool) {
+        guard !resolved else { return }
+        resolved = true
+        continuation?.resume(returning: value)
+        continuation = nil
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        resolve(true)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        resolve(false)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        resolve(false)
+    }
+}
+
+// MARK: - Previews sheet (90% × 90%, 2 columns, pinch to zoom)
+
+struct PreviewsSheet: View {
+    let items: [SharedItem]
+    let onSelect: (SharedItem) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            // UIScrollView fournit nativement un pinch-zoom centré sur
+            // les doigts (comportement standard iOS / iPadOS — Photos,
+            // Maps, Safari). On enveloppe la grille SwiftUI dedans.
+            ZoomableScrollView(minScale: 0.5, maxScale: 4.0) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)],
+                          spacing: 12) {
+                    ForEach(items) { item in
+                        previewTile(item: item)
+                            .contentShape(Rectangle())
+                            .onTapGesture { onSelect(item) }
+                    }
+                }
+                .padding(12)
+            }
+            .navigationTitle("Previews")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .navigationViewStyle(.stack)
+    }
+
+    @ViewBuilder
+    private func previewTile(item: SharedItem) -> some View {
+        PreviewTile(item: item)
+    }
+}
+
+/// Conteneur `UIScrollView` qui héberge n'importe quel contenu SwiftUI
+/// et lui applique le pinch-to-zoom natif iOS — centré sur les doigts,
+/// avec inertie de pan, gestion des bords, etc. (comme dans Photos).
+struct ZoomableScrollView<Content: View>: UIViewRepresentable {
+    let minScale: CGFloat
+    let maxScale: CGFloat
+    let content: Content
+
+    init(minScale: CGFloat = 0.5,
+         maxScale: CGFloat = 4.0,
+         @ViewBuilder content: () -> Content) {
+        self.minScale = minScale
+        self.maxScale = maxScale
+        self.content = content()
+    }
+
+    func makeUIView(context: Context) -> UIScrollView {
+        let scrollView = UIScrollView()
+        scrollView.delegate = context.coordinator
+        scrollView.minimumZoomScale = minScale
+        scrollView.maximumZoomScale = maxScale
+        scrollView.bouncesZoom = true
+        scrollView.showsVerticalScrollIndicator = true
+        scrollView.showsHorizontalScrollIndicator = true
+
+        let host = context.coordinator.host
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(host.view)
+        // Le hosted view dimensionne sa hauteur en fonction de la
+        // largeur disponible (intrinsic content size de la grille
+        // SwiftUI) ; on contraint sa largeur à celle du scroll view
+        // pour avoir un layout fluide horizontalement.
+        NSLayoutConstraint.activate([
+            host.view.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            host.view.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            host.view.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            host.view.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
+        ])
+        return scrollView
+    }
+
+    func updateUIView(_ scrollView: UIScrollView, context: Context) {
+        context.coordinator.host.rootView = content
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(content: content) }
+
+    final class Coordinator: NSObject, UIScrollViewDelegate {
+        let host: UIHostingController<Content>
+        init(content: Content) {
+            self.host = UIHostingController(rootView: content)
+            self.host.view.backgroundColor = .clear
+            super.init()
+        }
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+            host.view
+        }
+    }
+}
+
+/// Vignette compacte affichée à droite d'une ligne de la liste
+/// principale. Cache local pour éviter le re-décodage à chaque tick du
+/// timer de rechargement (sans ce cache : clignotement).
+struct RowThumbnail: View {
+    let item: SharedItem
+    @State private var cached: UIImage? = nil
+    @State private var loadedPath: String? = nil
+
+    var body: some View {
+        Group {
+            if let img = cached {
+                Image(uiImage: img)
+                    .resizable()
+            } else {
+                Color(.tertiarySystemFill)
+            }
+        }
+        .onAppear { loadIfNeeded() }
+        .onChange(of: item.previewPath) { _, _ in loadIfNeeded() }
+    }
+
+    private func loadIfNeeded() {
+        guard let path = item.previewPath, !path.isEmpty else {
+            cached = nil; loadedPath = nil; return
+        }
+        guard path != loadedPath else { return }
+        loadedPath = path
+        if let img = PreviewGenerator.loadPreview(filename: path) {
+            cached = img
+        }
+    }
+}
+
+/// Tuile d'aperçu qui charge l'UIImage UNE SEULE FOIS quand le
+/// `previewPath` apparaît ou change. Sans cache local, l'image est
+/// rechargée du disque à chaque re-render du parent (timer 100 ms qui
+/// recharge `items`), ce qui provoque un clignotement visible.
+private struct PreviewTile: View {
+    let item: SharedItem
+    @State private var cached: UIImage? = nil
+    @State private var loadedPath: String? = nil
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Group {
+                if let img = cached {
+                    Image(uiImage: img)
+                        .resizable()
+                        .aspectRatio(320.0 / 200.0, contentMode: .fit)
+                } else {
+                    Rectangle()
+                        .fill(Color(.tertiarySystemFill))
+                        .aspectRatio(320.0 / 200.0, contentMode: .fit)
+                        .overlay { ProgressView() }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+            )
+            Text(item.title ?? URL(string: item.url)?.lastPathComponent ?? item.url)
+                .font(.caption2)
+                .lineLimit(1)
+                .foregroundColor(.primary)
+        }
+        .onAppear { loadIfNeeded() }
+        .onChange(of: item.previewPath) { _, _ in loadIfNeeded() }
+    }
+
+    private func loadIfNeeded() {
+        guard let path = item.previewPath, !path.isEmpty else {
+            cached = nil
+            loadedPath = nil
+            return
+        }
+        guard path != loadedPath else { return }
+        loadedPath = path
+        if let img = PreviewGenerator.loadPreview(filename: path) {
+            cached = img
+        }
+    }
+}
+
+// MARK: - Widget reload coordinator (debounced, not @State)
+
+/// Coalesce les appels `WidgetCenter.shared.reloadAllTimelines()` :
+/// pendant un re-traitement IA on peut appeler `saveItems()` des
+/// dizaines de fois par seconde, et chaque saveItems schedule un
+/// reload. On garantit ici qu'il n'y a JAMAIS plus d'un reload en
+/// attente. Implémenté comme classe singleton (pas un @State) → ne
+/// déclenche aucun re-render SwiftUI.
+final class WidgetReloadCoordinator {
+    static let shared = WidgetReloadCoordinator()
+    private var pending: Bool = false
+    private let lock = NSLock()
+
+    func schedule() {
+        lock.lock()
+        let already = pending
+        pending = true
+        lock.unlock()
+        guard !already else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            guard let self = self else { return }
+            self.lock.lock()
+            self.pending = false
+            self.lock.unlock()
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+    }
+}
+
+// MARK: - Stats panel view (isolated re-render)
+
+/// Sous-vue dédiée au panneau de stats en bas de la sidebar. Possède
+/// son propre @State et son propre timer 2 s pour la taille du
+/// container. Comme c'est une struct SwiftUI séparée de ContentView,
+/// les mutations de ses @State n'invalident QUE ce sous-arbre — la
+/// toolbar de ContentView (donc ses Menus) reste stable.
+struct StatsPanelView: View {
+    let appGroup: String
+
+    @State private var appDataBytes: Int64 = 0
+    @State private var appDataComputing: Bool = false
+    @State private var statsTick: Int = 0
+
+    var body: some View {
+        // `_ = statsTick` lit la valeur pour que la vue se rafraîchisse
+        // quand on bumpe le tick (les compteurs IA sont dans
+        // UserDefaults, pas dans @State).
+        let _ = statsTick
+
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "internaldrive")
+                    .foregroundColor(.blue)
+                Text("App data")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                Spacer()
+                Text(formatBytes(appDataBytes))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .monospacedDigit()
+            }
+
+            let providers = AICounters.providersWithCalls()
+            if !providers.isEmpty {
+                Divider()
+                    .transition(.opacity)
+                ForEach(providers, id: \.self) { p in
+                    let s = AICounters.read(provider: p)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "sparkles")
+                                .foregroundColor(.purple)
+                            Text(AICounters.displayName(p))
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            if let m = s.model, !m.isEmpty {
+                                Text("(\(m))")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                        HStack {
+                            Text("Requests")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(s.requests)")
+                                .font(.caption2)
+                                .monospacedDigit()
+                                .contentTransition(.numericText(value: Double(s.requests)))
+                        }
+                        HStack {
+                            Text("Tokens in")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text(formatTokens(s.tokensIn))
+                                .font(.caption2)
+                                .monospacedDigit()
+                                .contentTransition(.numericText(value: Double(s.tokensIn)))
+                        }
+                        HStack {
+                            Text("Tokens out")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text(formatTokens(s.tokensOut))
+                                .font(.caption2)
+                                .monospacedDigit()
+                                .contentTransition(.numericText(value: Double(s.tokensOut)))
+                        }
+                    }
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .top)),
+                        removal: .opacity
+                    ))
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .animation(.easeInOut(duration: 0.5), value: providersSignature)
+        .animation(.easeInOut(duration: 0.5), value: appDataBytes)
+        .onAppear { recomputeAppDataBytes() }
+        .onReceive(Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()) { _ in
+            recomputeAppDataBytes()
+            statsTick &+= 1
+        }
+    }
+
+    private var providersSignature: String {
+        AICounters.providersWithCalls().map { p in
+            let s = AICounters.read(provider: p)
+            return "\(p)|\(s.requests)|\(s.tokensIn)|\(s.tokensOut)|\(s.model ?? "")"
+        }.joined(separator: ";")
+    }
+
+    private func recomputeAppDataBytes() {
+        guard !appDataComputing else { return }
+        appDataComputing = true
+        let group = appGroup
+        Task.detached(priority: .utility) {
+            var total: Int64 = 0
+            if let container = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: group) {
+                total = directorySize(at: container)
+            }
+            await MainActor.run {
+                appDataBytes = total
+                appDataComputing = false
+            }
+        }
+    }
+
+    private func formatBytes(_ b: Int64) -> String {
+        let f = ByteCountFormatter()
+        f.allowedUnits = [.useKB, .useMB, .useGB]
+        f.countStyle = .file
+        return f.string(fromByteCount: b)
+    }
+
+    private func formatTokens(_ n: Int) -> String {
+        if n >= 1_000_000 { return String(format: "%.1fM", Double(n) / 1_000_000) }
+        if n >= 1_000     { return String(format: "%.1fk", Double(n) / 1_000) }
+        return "\(n)"
+    }
+}
+
+// MARK: - Spinning gear (busy indicator on item rows)
+
+/// Petite roue dentée qui tourne en continu, posée à la place de
+/// l'icône de type d'objet quand une opération asynchrone est en cours
+/// pour la ligne (description IA, OCR, transcription audio, génération
+/// d'aperçu, fetch de date URL ou reverse geocoding). Utilise un
+/// `TimelineView(.animation)` qui ne fait re-rendre QUE la roue
+/// elle-même — le reste de la liste reste inchangé.
+struct SpinningGear: View {
+    let color: Color
+    @State private var rotating: Bool = false
+
+    var body: some View {
+        // Rotation pilotée par CoreAnimation : une seule mutation de
+        // `rotating` (false → true) au montage, l'animation
+        // `.repeatForever(autoreverses: false)` tourne ensuite hors de
+        // SwiftUI → AUCUN re-render du parent (donc plus de
+        // clignotement des Menus de la toolbar).
+        Image(systemName: "gearshape.fill")
+            .foregroundColor(color)
+            .rotationEffect(.degrees(rotating ? 360 : 0))
+            .animation(
+                .linear(duration: 1.2).repeatForever(autoreverses: false),
+                value: rotating
+            )
+            .onAppear { rotating = true }
+    }
+}
+
+// MARK: - Blinking modifier (local, no global re-render)
+
+extension View {
+    /// Fait clignoter doucement le contenu (opacité 1.0 ↔ 0.35, période
+    /// 1,2 s) sans déclencher de re-render du parent : utilise un
+    /// `TimelineView` qui réévalue UNIQUEMENT son contenu à chaque tick.
+    func blinking() -> some View {
+        modifier(BlinkingModifier())
+    }
+
+    /// Variante conditionnelle : ne clignote que si `active` est vrai,
+    /// sinon affichage stable à pleine opacité. Utilisé pour faire
+    /// clignoter l'icône d'une ligne uniquement pendant qu'une tâche
+    /// asynchrone tourne pour cet item.
+    @ViewBuilder
+    func blinking(if active: Bool) -> some View {
+        if active {
+            self.blinking()
+        } else {
+            self
+        }
+    }
+}
+
+private struct BlinkingModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        TimelineView(.periodic(from: .now, by: 0.6)) { ctx in
+            let on = Int(ctx.date.timeIntervalSinceReferenceDate / 0.6) % 2 == 0
+            content.opacity(on ? 1.0 : 0.35)
+        }
+    }
+}
+
+/// Calcule récursivement la taille totale (octets) d'un dossier. Utilisé
+/// pour afficher la taille des données de l'app dans le panneau latéral.
+func directorySize(at url: URL) -> Int64 {
+    let fm = FileManager.default
+    guard let enumerator = fm.enumerator(
+        at: url,
+        includingPropertiesForKeys: [.isRegularFileKey, .totalFileAllocatedSizeKey, .fileSizeKey],
+        options: [.skipsHiddenFiles]
+    ) else { return 0 }
+    var total: Int64 = 0
+    for case let file as URL in enumerator {
+        let values = try? file.resourceValues(forKeys: [.isRegularFileKey,
+                                                        .totalFileAllocatedSizeKey,
+                                                        .fileSizeKey])
+        guard values?.isRegularFile == true else { continue }
+        if let allocated = values?.totalFileAllocatedSize {
+            total += Int64(allocated)
+        } else if let size = values?.fileSize {
+            total += Int64(size)
+        }
+    }
+    return total
 }

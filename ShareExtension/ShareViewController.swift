@@ -956,10 +956,16 @@ class ShareViewController: UIViewController {
 
         if let data = try? JSONSerialization.data(withJSONObject: items) {
             defaults.set(data, forKey: "items")
+            // Compteur global persistant du nombre total de partages
+            // reçus par l'app, jamais inclus dans les sauvegardes (pas
+            // d'utilité hors de l'appareil). Lu côté app principale pour
+            // déclencher la demande de note tous les 10 partages.
+            let total = defaults.integer(forKey: "totalShareCount") + 1
+            defaults.set(total, forKey: "totalShareCount")
             defaults.synchronize()
             WidgetCenter.shared.reloadAllTimelines()
-            print("✅ Item saved (kind=\(kind)) in folder Default")
-            logger.info("✅ Item saved (kind=\(kind))")
+            print("✅ Item saved (kind=\(kind)) in folder Default — total shares: \(total)")
+            logger.info("✅ Item saved (kind=\(kind)) — total shares: \(total)")
         } else {
             print("❌ Failed to serialize items array")
             logger.error("❌ Failed to serialize items array")

@@ -12,9 +12,24 @@ struct WidgetItem: Decodable, Identifiable {
     let kind: String?
     let timestamp: Double
     let modifiedAt: Double?
+    /// Nom du folder de rangement de l'item (côté app principale).
+    let folder: String?
+    /// Dernière date de modification que l'utilisateur a "vue" — sert
+    /// au calcul de l'état non-lu, identique à l'app principale.
+    let lastSeenModifiedAt: Double?
 
     var displayTitle: String {
         title ?? URL(string: url)?.lastPathComponent ?? url
+    }
+
+    /// Reproduit la même logique que `isUnread(_:)` côté app
+    /// principale : un item (de N'IMPORTE QUEL type) est non-lu si on
+    /// a une `modifiedAt` connue et soit `lastSeenModifiedAt` nil, soit
+    /// `modifiedAt` strictement plus récent que la dernière vue.
+    var isUnread: Bool {
+        guard let mod = modifiedAt else { return false }
+        guard let seen = lastSeenModifiedAt else { return true }
+        return mod > seen
     }
 
     var effectiveKind: String {
@@ -59,17 +74,26 @@ struct ShareTimelineProvider: TimelineProvider {
               let items = try? JSONDecoder().decode([WidgetItem].self, from: data) else {
             return []
         }
-        return Array(items.prefix(8))
+        // On affiche UNIQUEMENT les items « non lus » (titre en gras
+        // bordeaux côté app, tous types confondus), dans l'ordre
+        // d'insertion (le plus récent en tête, identique au tri
+        // « Manual order » de l'app).
+        let unread = items.filter { $0.isUnread }
+        return Array(unread.prefix(30))
     }
 
     private func stubItems() -> [WidgetItem] {
-        [
-            WidgetItem(id: "1", title: "Apple", url: "https://www.apple.com", kind: "url",
-                       timestamp: Date().timeIntervalSince1970, modifiedAt: nil),
-            WidgetItem(id: "2", title: "vacation.jpg", url: "file:///tmp/vacation.jpg",
-                       kind: "photo", timestamp: Date().timeIntervalSince1970, modifiedAt: nil),
-            WidgetItem(id: "3", title: "Quick note", url: "Lorem ipsum", kind: "text",
-                       timestamp: Date().timeIntervalSince1970, modifiedAt: nil),
+        let now = Date().timeIntervalSince1970
+        return [
+            WidgetItem(id: "1", title: "Apple Newsroom", url: "https://www.apple.com/newsroom/",
+                       kind: "url", timestamp: now, modifiedAt: now,
+                       folder: "Default", lastSeenModifiedAt: nil),
+            WidgetItem(id: "2", title: "Swift Blog", url: "https://swift.org/blog/",
+                       kind: "url", timestamp: now, modifiedAt: now,
+                       folder: "Default", lastSeenModifiedAt: nil),
+            WidgetItem(id: "3", title: "WWDC", url: "https://developer.apple.com/wwdc/",
+                       kind: "url", timestamp: now, modifiedAt: now,
+                       folder: "Default", lastSeenModifiedAt: nil),
         ]
     }
 }
@@ -82,11 +106,55 @@ struct ShareWidgetEntryView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // ZStack avec header EN OVERLAY au-dessus de la liste : le
+        // header n'est plus jamais poussé hors écran par les items
+        // (avec un VStack classique, SwiftUI dans un widget peut
+        // compresser/déborder le premier enfant quand les suivants
+        // demandent trop de place). La liste a son propre cadre, est
+        // clippée, et démarre sous le header grâce à un padding-top
+        // explicite équivalent à la hauteur du header.
+        ZStack(alignment: .top) {
+            // Couche items (en dessous, démarre sous la zone du header)
+            Group {
+                if entry.items.isEmpty {
+                    VStack {
+                        Spacer()
+                        Text("No unread items")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                        Spacer()
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(entry.items.prefix(maxRows)) { item in
+                            HStack(spacing: 6) {
+                                Image(systemName: icon(item.effectiveKind))
+                                    .foregroundColor(color(item.effectiveKind))
+                                    .font(.caption2)
+                                Text(item.displayTitle)
+                                    .font(.caption2)
+                                    .lineLimit(1)
+                                Spacer()
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity,
+                           maxHeight: .infinity,
+                           alignment: .topLeading)
+                }
+            }
+            .padding(.top, 24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .clipped()
+
+            // Couche header (en haut, toujours visible)
             HStack {
                 Image(systemName: "tray.full")
                     .foregroundColor(.blue)
-                Text("ShareManager")
+                Text("Captured")
                     .font(.caption)
                     .fontWeight(.semibold)
                 Spacer()
@@ -95,28 +163,8 @@ struct ShareWidgetEntryView: View {
                     .foregroundColor(.secondary)
                     .monospacedDigit()
             }
-
-            if entry.items.isEmpty {
-                Spacer()
-                Text("No shared items")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                Spacer()
-            } else {
-                ForEach(entry.items.prefix(maxRows)) { item in
-                    HStack(spacing: 6) {
-                        Image(systemName: icon(item.effectiveKind))
-                            .foregroundColor(color(item.effectiveKind))
-                            .font(.caption2)
-                        Text(item.displayTitle)
-                            .font(.caption2)
-                            .lineLimit(1)
-                        Spacer()
-                    }
-                }
-                Spacer()
-            }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
         .padding(10)
     }
@@ -125,7 +173,7 @@ struct ShareWidgetEntryView: View {
         switch family {
         case .systemSmall:  return 3
         case .systemMedium: return 4
-        case .systemLarge:  return 8
+        case .systemLarge:  return 30
         default:            return 3
         }
     }
@@ -163,7 +211,7 @@ struct ShareWidget: Widget {
             ShareWidgetEntryView(entry: entry)
                 .containerBackground(for: .widget) { Color(.systemBackground) }
         }
-        .configurationDisplayName("ShareManager")
+        .configurationDisplayName("Captured")
         .description("Recent shared items")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
