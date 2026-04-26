@@ -832,6 +832,7 @@
       }
     },
     "Add this link from clipboard?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {

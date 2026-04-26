@@ -2,6 +2,7 @@ import UIKit
 import UniformTypeIdentifiers
 import ImageIO
 import os.log
+import WidgetKit
 
 class ShareViewController: UIViewController {
 
@@ -956,6 +957,7 @@ class ShareViewController: UIViewController {
         if let data = try? JSONSerialization.data(withJSONObject: items) {
             defaults.set(data, forKey: "items")
             defaults.synchronize()
+            WidgetCenter.shared.reloadAllTimelines()
             print("✅ Item saved (kind=\(kind)) in folder Default")
             logger.info("✅ Item saved (kind=\(kind))")
         } else {

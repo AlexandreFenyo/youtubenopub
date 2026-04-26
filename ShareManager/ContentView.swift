@@ -3,8 +3,11 @@ import WebKit
 import QuickLook
 import CoreLocation
 import Vision
+import AVFoundation
+import Speech
 import UniformTypeIdentifiers
 import CoreSpotlight
+import WidgetKit
 #if canImport(Translation)
 import Translation
 #endif
@@ -159,8 +162,6 @@ struct ContentView: View {
     @State private var typeFilter: String = "all"
     @State private var sortOrder: SortOrder = .insertion
     @State private var selection: Set<String> = []
-    @State private var clipboardCandidate: URL? = nil
-    @State private var clipboardLastChangeCount: Int = 0
     @State private var editingNoteItem: SharedItem? = nil
     @State private var smartFolder: SmartFolder? = nil
 
@@ -348,7 +349,6 @@ struct ContentView: View {
             loadFolders()
             loadSelectedFolder()
             loadItems()
-            checkClipboardForURL()
             // Lance automatiquement l'actualisation batch des dates URL au
             // démarrage. Le bouton du menu « … » reflète l'état en cours.
             if refreshTask == nil && hasURLItems {
@@ -360,11 +360,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             loadItems()
-            checkClipboardForURL()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             loadItems()
-            checkClipboardForURL()
         }
         .onReceive(Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()) { _ in
             loadItems()
@@ -536,7 +534,6 @@ struct ContentView: View {
     private var detail: some View {
         Group {
             VStack(spacing: 0) {
-                clipboardBanner
                 filterBanner
                 if currentItems.isEmpty {
                     Spacer(minLength: 0)
@@ -725,41 +722,6 @@ struct ContentView: View {
         .padding(.vertical, 4)
         .background(Color.blue.opacity(0.15))
         .clipShape(Capsule())
-    }
-
-    /// Bandeau présentant l'URL trouvée dans le presse-papiers au lancement.
-    @ViewBuilder
-    private var clipboardBanner: some View {
-        if let url = clipboardCandidate {
-            HStack(spacing: 12) {
-                Image(systemName: "doc.on.clipboard")
-                    .foregroundColor(.blue)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Add this link from clipboard?")
-                        .font(.subheadline).fontWeight(.medium)
-                    Text(url.absoluteString)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer()
-                Button("Add") {
-                    addItemFromClipboard(url)
-                    clipboardCandidate = nil
-                }
-                .buttonStyle(.borderedProminent)
-                Button {
-                    clipboardCandidate = nil
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(.ultraThinMaterial)
-        }
     }
 
     @ViewBuilder
@@ -1201,6 +1163,7 @@ struct ContentView: View {
         // par item (succès ou échec) pour éviter tout spam API.
         triggerPendingAIDescriptions()
         triggerPendingOCR()
+        triggerPendingAudioTranscriptions()
         Spotlight.index(items)
     }
 
@@ -1214,7 +1177,7 @@ struct ContentView: View {
         // Apple Intelligence (on-device Vision) n'a pas besoin de clé.
         if provider != "apple" && apiKey.isEmpty { return }
 
-        for item in items where item.effectiveKind == "photo"
+        for item in items where (item.effectiveKind == "photo" || item.effectiveKind == "video")
                                 && item.aiDescribed != true
                                 && !describingIDs.contains(item.id) {
             startAIDescribe(item: item, provider: provider, apiKey: apiKey, customModel: customModel)
@@ -1225,6 +1188,7 @@ struct ContentView: View {
         let toSave = newItems ?? items
         guard let defaults, let data = try? JSONEncoder().encode(toSave) else { return }
         defaults.set(data, forKey: StoreKeys.items)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     private func loadFolders() {
@@ -1395,61 +1359,10 @@ struct ContentView: View {
         selection.removeAll()
     }
 
-    // MARK: - Clipboard capture
-
-    private func checkClipboardForURL() {
-        let pb = UIPasteboard.general
-        // Évite la lecture répétée du même contenu
-        guard pb.changeCount != clipboardLastChangeCount else { return }
-        clipboardLastChangeCount = pb.changeCount
-
-        let candidate: URL? = {
-            if let url = pb.url, url.scheme == "http" || url.scheme == "https" {
-                return url
-            }
-            if let s = pb.string?.trimmingCharacters(in: .whitespacesAndNewlines),
-               let url = URL(string: s),
-               url.scheme == "http" || url.scheme == "https" {
-                return url
-            }
-            return nil
-        }()
-        guard let url = candidate else { return }
-        // Skip si déjà présent
-        if items.contains(where: { ($0.originalURL ?? $0.url) == url.absoluteString }) {
-            return
-        }
-        clipboardCandidate = url
-    }
-
-    private func addItemFromClipboard(_ url: URL) {
-        let now = Date().timeIntervalSince1970
-        let item = SharedItem(
-            id: UUID().uuidString,
-            url: url.absoluteString,
-            title: nil,
-            sourceApp: "Clipboard",
-            folder: smartFolder == nil ? currentFolder : StoreKeys.defaultFolder,
-            timestamp: now,
-            kind: "url",
-            modifiedAt: nil,
-            latitude: nil,
-            longitude: nil,
-            placeName: nil,
-            aiDescribed: nil,
-            lastSeenModifiedAt: nil,
-            originalURL: nil,
-            note: nil,
-            ocrDone: nil
-        )
-        items.insert(item, at: 0)
-        saveItems()
-    }
-
     // MARK: - OCR (photos)
 
     private func triggerPendingOCR() {
-        for item in items where item.effectiveKind == "photo"
+        for item in items where (item.effectiveKind == "photo" || item.effectiveKind == "video")
                                 && item.ocrDone != true
                                 // On laisse l'IA finir avant l'OCR pour bien
                                 // appender le texte OCR derrière la description.
@@ -1485,9 +1398,174 @@ struct ContentView: View {
         saveItems()
     }
 
+    // MARK: - Audio transcription (speech-to-text)
+
+    /// Lance la transcription des 15 premières secondes pour chaque item
+    /// audio jamais transcrit. On réutilise le drapeau `aiDescribed` pour
+    /// garantir une seule tentative par item (succès ou échec). Activé
+    /// uniquement si l'utilisateur a laissé `describeImagesEnabled` à true.
+    private func triggerPendingAudioTranscriptions() {
+        guard UserDefaults.standard.bool(forKey: "describeImagesEnabled") else { return }
+        for item in items where item.effectiveKind == "audio"
+                                && item.aiDescribed != true
+                                && !describingIDs.contains(item.id) {
+            startAudioTranscription(for: item)
+        }
+    }
+
+    private func startAudioTranscription(for item: SharedItem) {
+        describingIDs.insert(item.id)
+        let id = item.id
+        let urlString = item.url
+        Task.detached(priority: .utility) {
+            let text = await Self.transcribeFirstSeconds(audioURLString: urlString, seconds: 15)
+            await MainActor.run {
+                describingIDs.remove(id)
+                applyAudioTranscription(id: id, text: text)
+            }
+        }
+    }
+
+    private func applyAudioTranscription(id: String, text: String?) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        if let text, !text.isEmpty {
+            items[idx].title = text
+            items[idx].aiDescribed = true
+            saveItems()
+        } else {
+            // Échec : on marque quand même `aiDescribed` pour éviter tout
+            // retry, et on laisse le titre actuel intact.
+            items[idx].aiDescribed = true
+            saveItems()
+        }
+    }
+
+    /// Demande l'autorisation Speech (une fois) puis transcrit les
+    /// `seconds` premières secondes du fichier audio. Utilise la
+    /// reconnaissance on-device si disponible (privacy + offline), sinon
+    /// fallback vers le service réseau Apple. Retourne `nil` en cas
+    /// d'échec à n'importe quelle étape.
+    static func transcribeFirstSeconds(audioURLString: String, seconds: Double) async -> String? {
+        guard let url = URL(string: audioURLString), url.isFileURL else { return nil }
+
+        // Autorisation Speech
+        let authStatus: SFSpeechRecognizerAuthorizationStatus = await withCheckedContinuation { cont in
+            SFSpeechRecognizer.requestAuthorization { status in cont.resume(returning: status) }
+        }
+        guard authStatus == .authorized else {
+            print("Speech not authorized: \(authStatus.rawValue)")
+            return nil
+        }
+
+        // Choix du recognizer dans la langue de l'app, fallback en-US.
+        let appLocale = Locale.current
+        let recognizer = SFSpeechRecognizer(locale: appLocale)
+            ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+        guard let recognizer, recognizer.isAvailable else { return nil }
+
+        // Trim à `seconds` premières secondes dans un fichier .m4a temporaire.
+        guard let trimmedURL = await trimAudioPrefix(sourceURL: url, seconds: seconds) else {
+            return nil
+        }
+        defer { try? FileManager.default.removeItem(at: trimmedURL) }
+
+        let request = SFSpeechURLRecognitionRequest(url: trimmedURL)
+        request.shouldReportPartialResults = false
+        if recognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+        }
+
+        return await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
+            var hasResumed = false
+            recognizer.recognitionTask(with: request) { result, error in
+                if hasResumed { return }
+                if let error {
+                    print("Speech recognition error: \(error.localizedDescription)")
+                    hasResumed = true
+                    cont.resume(returning: nil)
+                    return
+                }
+                guard let result, result.isFinal else { return }
+                hasResumed = true
+                let text = result.bestTranscription.formattedString
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                cont.resume(returning: text.isEmpty ? nil : text)
+            }
+        }
+    }
+
+    /// Exporte les `seconds` premières secondes d'un fichier audio vers
+    /// un .m4a temporaire utilisable par SFSpeechURLRecognitionRequest.
+    static func trimAudioPrefix(sourceURL: URL, seconds: Double) async -> URL? {
+        let asset = AVURLAsset(url: sourceURL)
+        let duration = try? await asset.load(.duration)
+        let endSec = min(seconds, CMTimeGetSeconds(duration ?? CMTime(seconds: seconds, preferredTimescale: 600)))
+        guard endSec > 0 else { return nil }
+        let timeRange = CMTimeRange(start: .zero,
+                                    duration: CMTime(seconds: endSec, preferredTimescale: 600))
+        guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+            return nil
+        }
+        let outURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sm-trim-\(UUID().uuidString).m4a")
+        exporter.outputURL = outURL
+        exporter.outputFileType = .m4a
+        exporter.timeRange = timeRange
+        return await withCheckedContinuation { (cont: CheckedContinuation<URL?, Never>) in
+            exporter.exportAsynchronously {
+                if exporter.status == .completed {
+                    cont.resume(returning: outURL)
+                } else {
+                    print("Audio trim failed: \(exporter.error?.localizedDescription ?? "unknown")")
+                    cont.resume(returning: nil)
+                }
+            }
+        }
+    }
+
+    /// Charge des données d'image utilisables pour OCR / IA. Pour une photo,
+    /// retourne directement les octets du fichier. Pour une vidéo, extrait
+    /// la première frame en JPEG. Retourne `nil` si l'extraction échoue —
+    /// l'appelant gère alors le fallback (titre laissé en l'état).
+    static func loadImageDataForAnalysis(urlString: String) -> Data? {
+        guard let url = URL(string: urlString), url.isFileURL else { return nil }
+        if isVideoURLString(urlString) {
+            return extractFirstFrameJPEG(videoURL: url)
+        }
+        return try? Data(contentsOf: url)
+    }
+
+    /// Vrai si l'URL pointe vers un fichier vidéo (selon l'extension).
+    static func isVideoURLString(_ urlString: String) -> Bool {
+        guard let url = URL(string: urlString) else { return false }
+        let ext = url.pathExtension
+        guard let utype = UTType(filenameExtension: ext) else { return false }
+        return utype.conforms(to: .movie) || utype.conforms(to: .audiovisualContent)
+    }
+
+    /// Extrait la première frame d'une vidéo et la renvoie sous forme de
+    /// JPEG. Renvoie `nil` en cas d'échec (codec non supporté, fichier
+    /// corrompu, etc.) → l'appelant doit alors retomber sur le comportement
+    /// existant (pas d'OCR / pas de description IA).
+    static func extractFirstFrameJPEG(videoURL: URL) -> Data? {
+        let asset = AVURLAsset(url: videoURL)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        // Tolérance pour récupérer une frame proche de t=0 même si la vidéo
+        // n'a pas de keyframe à exactement zéro.
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = CMTime(seconds: 1, preferredTimescale: 600)
+        do {
+            let cgImage = try generator.copyCGImage(at: .zero, actualTime: nil)
+            return UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.85)
+        } catch {
+            print("Video frame extraction failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     static func recognizeText(in urlString: String) async -> String? {
-        guard let url = URL(string: urlString), url.isFileURL,
-              let data = try? Data(contentsOf: url),
+        guard let data = loadImageDataForAnalysis(urlString: urlString),
               let cgImage = UIImage(data: data)?.cgImage else { return nil }
         return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
             let request = VNRecognizeTextRequest { req, _ in
@@ -1766,8 +1844,7 @@ struct ContentView: View {
     /// côté) puis appelle le provider choisi. Renvoie la description texte
     /// ou nil en cas d'échec.
     static func describeImage(urlString: String, provider: String, apiKey: String, customModel: String) async -> String? {
-        guard let url = URL(string: urlString), url.isFileURL,
-              let raw = try? Data(contentsOf: url) else { return nil }
+        guard let raw = loadImageDataForAnalysis(urlString: urlString) else { return nil }
 
         // Apple Intelligence (on-device Vision) : pas d'appel réseau,
         // pas besoin de compression JPEG ni de clé.
@@ -1779,7 +1856,13 @@ struct ContentView: View {
         let base64 = jpeg.base64EncodedString()
 
         let lang = Locale.current.language.languageCode?.identifier ?? "en"
-        let prompt = "Describe this image in rich, visual detail: subjects, objects, colors, composition, lighting, mood, and any notable elements. Respond in the language with BCP-47 code \"\(lang)\". Return only the description itself, with no preamble, no quotes, no labels."
+        let isVideoFrame = isVideoURLString(urlString)
+        let prompt: String
+        if isVideoFrame {
+            prompt = "The attached image is the first frame extracted from a video file. Based on this frame, describe the VIDEO (not the image) in rich, visual detail: subjects, objects, colors, composition, lighting, mood, and any notable elements. Phrase the description in terms of the video — for example, say \"the video shows…\" rather than \"the image shows…\". Respond in the language with BCP-47 code \"\(lang)\". Return only the description itself, with no preamble, no quotes, no labels."
+        } else {
+            prompt = "Describe this image in rich, visual detail: subjects, objects, colors, composition, lighting, mood, and any notable elements. Respond in the language with BCP-47 code \"\(lang)\". Return only the description itself, with no preamble, no quotes, no labels."
+        }
 
         switch provider {
         case "openai":
