@@ -164,6 +164,7 @@ struct ContentView: View {
     @State private var selection: Set<String> = []
     @State private var editingNoteItem: SharedItem? = nil
     @State private var smartFolder: SmartFolder? = nil
+    @AppStorage("smartFoldersExpanded") private var smartFoldersExpanded: Bool = true
 
     enum SortOrder: String, CaseIterable, Identifiable {
         case insertion, dateNewest, dateOldest, titleAZ, sourceAZ
@@ -180,7 +181,7 @@ struct ContentView: View {
     }
 
     enum SmartFolder: String, CaseIterable, Identifiable {
-        case all, recent7days, unreadURLs, withLocation, photosOnly
+        case all, recent7days, unreadURLs, withLocation, photosOnly, videosOnly
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -189,6 +190,7 @@ struct ContentView: View {
             case .unreadURLs:   return String(localized: "Unread URLs")
             case .withLocation: return String(localized: "With location")
             case .photosOnly:   return String(localized: "Photos only")
+            case .videosOnly:   return String(localized: "Videos only")
             }
         }
         var systemImage: String {
@@ -198,6 +200,7 @@ struct ContentView: View {
             case .unreadURLs:   return "circle.fill"
             case .withLocation: return "mappin.and.ellipse"
             case .photosOnly:   return "photo"
+            case .videosOnly:   return "video"
             }
         }
     }
@@ -256,6 +259,8 @@ struct ContentView: View {
                 result = items.filter { $0.latitude != nil && $0.longitude != nil }
             case .photosOnly:
                 result = items.filter { $0.effectiveKind == "photo" }
+            case .videosOnly:
+                result = items.filter { $0.effectiveKind == "video" }
             }
         } else {
             result = items.filter { $0.folder == currentFolder }
@@ -467,18 +472,37 @@ struct ContentView: View {
     @ViewBuilder
     private var sidebar: some View {
         List(selection: $selectedFolder) {
-            Section("Smart") {
-                ForEach(SmartFolder.allCases) { sf in
+            Section {
+                Button {
+                    smartFoldersExpanded.toggle()
+                } label: {
                     HStack {
-                        Image(systemName: sf.systemImage)
-                        Text(sf.label)
+                        Label("Smart Views", systemImage: "sparkles")
+                            .font(.subheadline)
+                            .foregroundColor(.primary)
                         Spacer()
-                        Text("\(smartCount(sf))")
+                        Image(systemName: "chevron.down")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                            .monospacedDigit()
+                            .rotationEffect(.degrees(smartFoldersExpanded ? 0 : -90))
                     }
-                    .tag("smart:\(sf.rawValue)")
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if smartFoldersExpanded {
+                    ForEach(SmartFolder.allCases) { sf in
+                        HStack {
+                            Image(systemName: sf.systemImage)
+                            Text(sf.label)
+                            Spacer()
+                            Text("\(smartCount(sf))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .monospacedDigit()
+                        }
+                        .tag("smart:\(sf.rawValue)")
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
                 }
             }
             Section("Folders") {
@@ -505,6 +529,7 @@ struct ContentView: View {
                 }
             }
         }
+        .animation(.easeInOut(duration: 0.5), value: smartFoldersExpanded)
         .navigationTitle("Folders")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -525,6 +550,7 @@ struct ContentView: View {
         case .unreadURLs:   return items.filter { isUnread($0) }.count
         case .withLocation: return items.filter { $0.latitude != nil && $0.longitude != nil }.count
         case .photosOnly:   return items.filter { $0.effectiveKind == "photo" }.count
+        case .videosOnly:   return items.filter { $0.effectiveKind == "video" }.count
         }
     }
 
@@ -535,27 +561,41 @@ struct ContentView: View {
         Group {
             VStack(spacing: 0) {
                 filterBanner
-                if currentItems.isEmpty {
-                    Spacer(minLength: 0)
-                    emptyState
-                    Spacer(minLength: 0)
-                } else {
-                    List(selection: $selection) {
-                        ForEach(currentItems) { item in
-                            itemRow(item)
-                                .tag(item.id)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .animation(.easeInOut(duration: 0.5), value: filterIsActive)
+                ZStack {
+                    if currentItems.isEmpty {
+                        VStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            emptyState
+                            Spacer(minLength: 0)
                         }
-                        .onDelete(perform: deleteItems)
-                        .onMove(perform: moveItems)
-                    }
-                    .refreshable {
-                        await pullToRefreshDates()
+                        .transition(.opacity)
+                    } else {
+                        List(selection: $selection) {
+                            ForEach(currentItems) { item in
+                                itemRow(item)
+                                    .tag(item.id)
+                            }
+                            .onDelete(perform: deleteItems)
+                            .onMove(perform: moveItems)
+                        }
+                        .animation(.easeInOut(duration: 0.5), value: typeFilter)
+                        .animation(.easeInOut(duration: 0.5), value: currentItems.count)
+                        .refreshable {
+                            await pullToRefreshDates()
+                        }
+                        .transition(.opacity)
                     }
                 }
+                .animation(.easeInOut(duration: 0.5), value: currentItems.isEmpty)
             }
         }
         .searchable(text: $searchQuery, placement: .navigationBarDrawer(displayMode: .always))
+        .searchPresentationToolbarBehavior(.avoidHidingContent)
         .navigationTitle(detailTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .modifier(FilterToolbarBackground(active: filterIsActiveExcludingSearch))
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button {
@@ -564,10 +604,10 @@ struct ContentView: View {
                     Image(systemName: colorSchemePreference == 1 ? "moon.fill" : colorSchemePreference == 2 ? "sun.max.fill" : "circle.lefthalf.filled")
                 }
             }
-            if !items.isEmpty {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    EditButton()
-                }
+            ToolbarItem(placement: .navigationBarLeading) {
+                EditButton()
+                    .disabled(items.isEmpty)
+                    .animation(.easeInOut(duration: 0.5), value: items.isEmpty)
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 filterSortMenu
@@ -575,14 +615,14 @@ struct ContentView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 settingsMenu
             }
-            if !currentItems.isEmpty {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(role: .destructive) {
-                        showClearConfirmation = true
-                    } label: {
-                        Image(systemName: "trash")
-                    }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(role: .destructive) {
+                    showClearConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
                 }
+                .disabled(currentItems.isEmpty)
+                .animation(.easeInOut(duration: 0.5), value: currentItems.isEmpty)
             }
             // Bottom bar pour les opérations en lot quand selection non vide
             ToolbarItemGroup(placement: .bottomBar) {
@@ -622,6 +662,15 @@ struct ContentView: View {
 
     private var filterIsActive: Bool {
         typeFilter != "all" || sortOrder != .insertion || !searchQuery.isEmpty
+    }
+
+    /// Variante n'incluant PAS la recherche : utilisée pour conditionner
+    /// le fond de la toolbar. Toute mutation de la toolbar pendant que la
+    /// barre de recherche a le focus la fait perdre le focus (iOS interprète
+    /// alors la fin d'édition comme un Enter), donc on ne touche pas au
+    /// fond quand l'utilisateur tape juste dans la recherche.
+    private var filterIsActiveExcludingSearch: Bool {
+        typeFilter != "all" || sortOrder != .insertion
     }
 
     /// Menu unifié filtre + tri. L'icône passe en .fill + tint bleu quand
@@ -689,8 +738,15 @@ struct ContentView: View {
                 .font(.caption)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(Color.blue.opacity(0.10))
+            .padding(.top, 8)
+            .padding(.bottom, 28)
+            .background(
+                LinearGradient(
+                    colors: [Color.blue.opacity(0.16), Color(.systemGroupedBackground)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
         }
     }
 
@@ -738,13 +794,13 @@ struct ContentView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
                 if let label = activeConstraintsSummary {
-                    Text("(\(label))")
+                    Text(label)
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 24)
                 }
-                Button("Clear filters") {
+                Button("Reset view") {
                     typeFilter = "all"
                     sortOrder = .insertion
                     searchQuery = ""
@@ -887,19 +943,33 @@ struct ContentView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "video.fill")
                         .foregroundColor(.red)
-                    Text(item.title ?? linkURL?.lastPathComponent ?? item.url)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .lineLimit(2)
+                    if describingIDs.contains(item.id) {
+                        Text("Describing video…")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .opacity(blinkPhase ? 1.0 : 0.35)
+                    } else {
+                        Text(item.title ?? linkURL?.lastPathComponent ?? item.url)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .lineLimit(2)
+                    }
                 }
             case "audio":
                 HStack(spacing: 8) {
                     Image(systemName: "waveform")
                         .foregroundColor(.teal)
-                    Text(item.title ?? linkURL?.lastPathComponent ?? item.url)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .lineLimit(2)
+                    if describingIDs.contains(item.id) {
+                        Text("Transcribing audio…")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .opacity(blinkPhase ? 1.0 : 0.35)
+                    } else {
+                        Text(item.title ?? linkURL?.lastPathComponent ?? item.url)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .lineLimit(2)
+                    }
                 }
             case "text":
                 HStack(alignment: .top, spacing: 8) {
@@ -2481,6 +2551,29 @@ struct BackupShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
 
+/// Applique un toolbarBackground bleu en dégradé uniquement quand un filtre
+/// est actif — sinon laisse le système gérer la barre normale (même
+/// pendant le scroll).
+struct FilterToolbarBackground: ViewModifier {
+    let active: Bool
+    func body(content: Content) -> some View {
+        if active {
+            content
+                .toolbarBackground(
+                    LinearGradient(
+                        colors: [Color.blue.opacity(0.22), Color.blue.opacity(0.16)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    for: .navigationBar
+                )
+                .toolbarBackground(.visible, for: .navigationBar)
+        } else {
+            content
+        }
+    }
+}
+
 /// Job de traduction d'un titre d'item (labels Vision anglais → langue user).
 struct LabelTranslationJob: Identifiable, Equatable {
     let id: String   // ID du SharedItem ciblé
@@ -2511,17 +2604,26 @@ struct LabelTranslator: View {
     }
 
     private func ensureConfig() {
+        // Cible : la langue préférée de l'utilisateur (et non pas la langue
+        // de développement de l'app, qui peut rester l'anglais quand
+        // l'utilisateur n'a pas téléchargé une langue Translation pour
+        // chaque locale supportée).
+        let target: Locale.Language = {
+            if let pref = Locale.preferredLanguages.first {
+                return Locale.Language(identifier: pref)
+            }
+            return Locale.current.language
+        }()
         if config == nil {
             config = TranslationSession.Configuration(
                 source: Locale.Language(identifier: "en"),
-                target: Locale.current.language
+                target: target
             )
         } else {
-            // Forcer la relance de .translationTask en ré-instanciant
-            config = TranslationSession.Configuration(
-                source: Locale.Language(identifier: "en"),
-                target: Locale.current.language
-            )
+            // Pattern recommandé Apple : invalider l'ancienne config pour
+            // que .translationTask ré-exécute son action avec une nouvelle
+            // session. Recréer une config "égale" ne déclenche rien.
+            config?.invalidate()
         }
     }
 
