@@ -198,333 +198,223 @@ class ShareViewController: UIViewController {
         // Récupérer l'app source qui partage le contenu
         let sourceApp = getSourceApplication()
 
-        // -- Branche photo (public.image) traitée avant la branche URL,
-        //    car une photo partagée arrive généralement avec UTI public.jpeg
-        //    qui ne conforme pas à public.url.
-        for attachment in attachments {
-            if attachment.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-                log("🖼 Image branch matched (hasItem public.image). Loading…")
-                attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { [weak self] data, error in
-                    self?.log("📥 Image loadItem: type=\(type(of: data)) err=\(error?.localizedDescription ?? "none")")
-
-                    // Images iOS sont presque toujours fournies comme URL.
-                    guard let imageURL = data as? URL, imageURL.isFileURL else {
-                        self?.log("⚠️ Image loadItem ne renvoie pas de file URL — fallback unsupported")
-                        DispatchQueue.main.async {
-                            self?.logUnsupportedPayloadAndComplete()
-                        }
-                        return
-                    }
-
-                    // Lectures AVANT la copie (sinon on perd l'accès
-                    // security-scoped et on mesure notre propre copie).
-                    let (srcModDate, gps): (Double?, (lat: Double, lon: Double)?) = {
-                        let didStart = imageURL.startAccessingSecurityScopedResource()
-                        defer { if didStart { imageURL.stopAccessingSecurityScopedResource() } }
-                        var mod: Double? = nil
-                        if let attrs = try? FileManager.default.attributesOfItem(atPath: imageURL.path),
-                           let d = attrs[.modificationDate] as? Date {
-                            mod = d.timeIntervalSince1970
-                        }
-                        let gpsRead = Self.readGPS(from: imageURL)
-                        return (mod, gpsRead)
-                    }()
-
-                    guard let copied = self?.copyFileToAppGroup(originalURL: imageURL) else {
-                        self?.log("⚠️ Échec de la copie de la photo dans l'App Group — unsupported.")
-                        DispatchQueue.main.async {
-                            self?.logUnsupportedPayloadAndComplete()
-                        }
-                        return
-                    }
-                    let filename = imageURL.lastPathComponent
-                    let title = (pageTitle?.isEmpty == false) ? pageTitle : filename
-                    let finalSource = sourceApp ?? "Photos"
-                    self?.log("🖼 Photo imported: \(copied.lastPathComponent) modDate=\(String(describing: srcModDate)) gps=\(String(describing: gps))")
-                    self?.save(urlString: copied.absoluteString,
-                               sourceApp: finalSource,
-                               pageTitle: title,
-                               kind: "photo",
-                               modifiedAt: srcModDate,
-                               latitude: gps?.lat,
-                               longitude: gps?.lon)
-                    DispatchQueue.main.async {
-                        self?.showCheckmark(sourceApp: finalSource)
-                    }
+        // ===== Coordination multi-attachements =====
+        // Chaque attachement est traité indépendamment ; on ne complète
+        // qu'après que TOUS les attachements ont été consommés. Cas typique :
+        // partage de plusieurs photos depuis l'app Photos.
+        var pendingCount = attachments.count
+        var matchedCount = 0
+        let lock = NSLock()
+        let oneDone: (Bool) -> Void = { [weak self] matched in
+            lock.lock()
+            pendingCount -= 1
+            if matched { matchedCount += 1 }
+            let allDone = pendingCount <= 0
+            let total = matchedCount
+            lock.unlock()
+            guard allDone else { return }
+            DispatchQueue.main.async {
+                if total == 0 {
+                    self?.logUnsupportedPayloadAndComplete()
+                } else {
+                    self?.showCheckmark(sourceApp: sourceApp ?? "Share")
                 }
-                return
             }
         }
-
-        // -- Branche audio (public.audio) : mp3, m4a, wav…
         for attachment in attachments {
-            if attachment.hasItemConformingToTypeIdentifier(UTType.audio.identifier) {
-                log("🎵 Audio branch matched (hasItem public.audio). Loading…")
-                attachment.loadItem(forTypeIdentifier: UTType.audio.identifier, options: nil) { [weak self] data, error in
-                    self?.log("📥 Audio loadItem: type=\(type(of: data)) err=\(error?.localizedDescription ?? "none")")
-                    guard let audioURL = data as? URL, audioURL.isFileURL else {
-                        self?.log("⚠️ Audio loadItem ne renvoie pas de file URL — fallback unsupported")
-                        DispatchQueue.main.async { self?.logUnsupportedPayloadAndComplete() }
-                        return
-                    }
-                    let srcModDate: Double? = {
-                        let didStart = audioURL.startAccessingSecurityScopedResource()
-                        defer { if didStart { audioURL.stopAccessingSecurityScopedResource() } }
-                        if let attrs = try? FileManager.default.attributesOfItem(atPath: audioURL.path),
-                           let d = attrs[.modificationDate] as? Date {
-                            return d.timeIntervalSince1970
-                        }
-                        return nil
-                    }()
-                    guard let copied = self?.copyFileToAppGroup(originalURL: audioURL) else {
-                        self?.log("⚠️ Échec copie audio — unsupported.")
-                        DispatchQueue.main.async { self?.logUnsupportedPayloadAndComplete() }
-                        return
-                    }
-                    let filename = audioURL.lastPathComponent
-                    let title = (pageTitle?.isEmpty == false) ? pageTitle : filename
-                    let finalSource = sourceApp ?? "Audio"
-                    self?.log("🎵 Audio imported: \(copied.lastPathComponent) modDate=\(String(describing: srcModDate))")
-                    self?.save(urlString: copied.absoluteString,
-                               sourceApp: finalSource,
-                               pageTitle: title,
-                               kind: "audio",
-                               modifiedAt: srcModDate)
-                    DispatchQueue.main.async { self?.showCheckmark(sourceApp: finalSource) }
-                }
-                return
-            }
+            processOneAttachment(attachment, sourceApp: sourceApp, pageTitle: pageTitle, onDone: oneDone)
         }
-
-        // -- Branche vidéo (public.movie) traitée avant URL : un mp4 partagé
-        //    arrive typiquement avec UTI public.mpeg-4 qui conforme à
-        //    public.movie → public.audiovisual-content → public.data, mais pas
-        //    à public.url.
-        for attachment in attachments {
-            if attachment.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
-                log("🎬 Video branch matched (hasItem public.movie). Loading…")
-                attachment.loadItem(forTypeIdentifier: UTType.movie.identifier, options: nil) { [weak self] data, error in
-                    self?.log("📥 Video loadItem: type=\(type(of: data)) err=\(error?.localizedDescription ?? "none")")
-
-                    guard let videoURL = data as? URL, videoURL.isFileURL else {
-                        self?.log("⚠️ Video loadItem ne renvoie pas de file URL — fallback unsupported")
-                        DispatchQueue.main.async {
-                            self?.logUnsupportedPayloadAndComplete()
-                        }
-                        return
-                    }
-
-                    let srcModDate: Double? = {
-                        let didStart = videoURL.startAccessingSecurityScopedResource()
-                        defer { if didStart { videoURL.stopAccessingSecurityScopedResource() } }
-                        if let attrs = try? FileManager.default.attributesOfItem(atPath: videoURL.path),
-                           let d = attrs[.modificationDate] as? Date {
-                            return d.timeIntervalSince1970
-                        }
-                        return nil
-                    }()
-
-                    guard let copied = self?.copyFileToAppGroup(originalURL: videoURL) else {
-                        self?.log("⚠️ Échec de la copie de la vidéo dans l'App Group — unsupported.")
-                        DispatchQueue.main.async {
-                            self?.logUnsupportedPayloadAndComplete()
-                        }
-                        return
-                    }
-                    let filename = videoURL.lastPathComponent
-                    let title = (pageTitle?.isEmpty == false) ? pageTitle : filename
-                    let finalSource = sourceApp ?? "Videos"
-                    self?.log("🎬 Video imported: \(copied.lastPathComponent) modDate=\(String(describing: srcModDate))")
-                    self?.save(urlString: copied.absoluteString,
-                               sourceApp: finalSource,
-                               pageTitle: title,
-                               kind: "video",
-                               modifiedAt: srcModDate)
-                    DispatchQueue.main.async {
-                        self?.showCheckmark(sourceApp: finalSource)
-                    }
-                }
-                return
-            }
-        }
-
-        for attachment in attachments {
-            if attachment.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-                print("✅ Found URL type identifier")
-                log("🔗 URL branch matched (hasItem public.url). Loading…")
-                attachment.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] data, error in
-                    print("\n📥 URL DATA LOADED:")
-                    print("   Data Type: \(type(of: data))")
-                    print("   Error: \(error?.localizedDescription ?? "None")")
-                    self?.log("📥 URL loadItem: type=\(type(of: data)) err=\(error?.localizedDescription ?? "none") value=\(String(describing: data))")
-
-                    // Cas fichier : on le copie dans l'App Group pour le
-                    // rendre persistant puis on l'enregistre comme entrée.
-                    if let fileURL = data as? URL, fileURL.isFileURL {
-                        // Lire la date de modification AVANT la copie
-                        // pour ne pas récupérer la date de notre propre copie.
-                        let srcModDate: Double? = {
-                            let didStart = fileURL.startAccessingSecurityScopedResource()
-                            defer { if didStart { fileURL.stopAccessingSecurityScopedResource() } }
-                            if let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
-                               let date = attrs[.modificationDate] as? Date {
-                                return date.timeIntervalSince1970
-                            }
-                            return nil
-                        }()
-
-                        guard let copied = self?.copyFileToAppGroup(originalURL: fileURL) else {
-                            self?.log("⚠️ Échec de la copie du fichier dans l'App Group — unsupported.")
-                            DispatchQueue.main.async {
-                                self?.logUnsupportedPayloadAndComplete()
-                            }
-                            return
-                        }
-                        let filename = fileURL.lastPathComponent
-                        let title = (pageTitle?.isEmpty == false) ? pageTitle : filename
-                        let finalSource = sourceApp ?? "Files"
-                        self?.log("📁 File imported: \(copied.lastPathComponent) (from \(fileURL.path)) modDate=\(String(describing: srcModDate))")
-                        self?.save(urlString: copied.absoluteString,
-                                   sourceApp: finalSource,
-                                   pageTitle: title,
-                                   kind: "file",
-                                   modifiedAt: srcModDate)
-                        DispatchQueue.main.async {
-                            self?.showCheckmark(sourceApp: finalSource)
-                        }
-                        return
-                    }
-
-                    var urlString: String?
-                    if let url = data as? URL, url.scheme == "http" || url.scheme == "https" {
-                        urlString = url.absoluteString
-                        print("   ✅ URL Object: \(urlString!)")
-                    } else if let str = data as? String,
-                              let url = URL(string: str),
-                              url.scheme == "http" || url.scheme == "https" {
-                        urlString = str
-                        print("   ✅ String URL: \(urlString!)")
-                    }
-
-                    guard let urlString = urlString else {
-                        self?.log("⚠️ public.url matched but no http(s) URL extracted — treating as unsupported.")
-                        DispatchQueue.main.async {
-                            self?.logUnsupportedPayloadAndComplete()
-                        }
-                        return
-                    }
-
-                    // IMPORTANT: Détecter la source AVANT la transformation
-                    let detectedSource = self?.detectSourceBeforeTransform(urlString) ?? sourceApp
-                    let transformedURL = self?.transform(urlString: urlString) ?? urlString
-
-                    print("   📊 URL Processing:")
-                    print("      Original: \(urlString)")
-                    print("      Transformed: \(transformedURL)")
-                    print("      Source: \(detectedSource ?? "Unknown")")
-                    print("      Title from attributedTitle: \(pageTitle ?? "None")")
-
-                    if pageTitle == nil || pageTitle!.isEmpty {
-                        print("   🔄 No title from attributedTitle, fetching from original URL...")
-                        self?.fetchTitleFromURL(urlString) { fetchedTitle in
-                            let finalTitle = fetchedTitle ?? pageTitle
-                            print("   📌 Final title to save: \(finalTitle ?? "None")")
-                            self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: finalTitle, originalURL: urlString)
-                            DispatchQueue.main.async {
-                                self?.showCheckmark(sourceApp: detectedSource)
-                            }
-                        }
-                    } else {
-                        self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: pageTitle, originalURL: urlString)
-                        DispatchQueue.main.async {
-                            self?.showCheckmark(sourceApp: detectedSource)
-                        }
-                    }
-                }
-                return
-            }
-        }
-
-        for attachment in attachments {
-            if attachment.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                print("✅ Found Plain Text type identifier")
-                log("📝 Plain Text branch matched. Loading…")
-                attachment.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] data, error in
-                    print("\n📥 PLAIN TEXT DATA LOADED:")
-                    print("   Data Type: \(type(of: data))")
-                    print("   Error: \(error?.localizedDescription ?? "None")")
-                    self?.log("📥 Plain Text loadItem: type=\(type(of: data)) err=\(error?.localizedDescription ?? "none")")
-
-                    guard let str = data as? String else {
-                        self?.log("⚠️ plainText data isn't a String — unsupported.")
-                        DispatchQueue.main.async {
-                            self?.logUnsupportedPayloadAndComplete()
-                        }
-                        return
-                    }
-
-                    // Cas 1 : le texte est une URL http(s) → on reprend le flux URL.
-                    var urlString: String?
-                    if let url = URL(string: str),
-                       url.scheme == "http" || url.scheme == "https" {
-                        urlString = str
-                        print("   ✅ Text contains URL: \(urlString!)")
-                    }
-
-                    // Cas 2 : texte sans URL web → on sauve en tant que texte.
-                    guard let urlString = urlString else {
-                        let firstLine = str.split(whereSeparator: { $0.isNewline }).first.map(String.init) ?? str
-                        let textTitle = (pageTitle?.isEmpty == false) ? pageTitle : String(firstLine.prefix(80))
-                        let finalSource = sourceApp ?? "Text"
-                        self?.log("📝 Saving text content (\(str.count) chars)")
-                        self?.save(urlString: str, sourceApp: finalSource, pageTitle: textTitle, kind: "text")
-                        DispatchQueue.main.async {
-                            self?.showCheckmark(sourceApp: finalSource)
-                        }
-                        return
-                    }
-
-                    // IMPORTANT: Détecter la source AVANT la transformation
-                    let detectedSource = self?.detectSourceBeforeTransform(urlString) ?? sourceApp
-                    let transformedURL = self?.transform(urlString: urlString) ?? urlString
-
-                    print("   📊 URL Processing:")
-                    print("      Original: \(urlString)")
-                    print("      Transformed: \(transformedURL)")
-                    print("      Source: \(detectedSource ?? "Unknown")")
-                    print("      Title from attributedTitle: \(pageTitle ?? "None")")
-
-                    if pageTitle == nil || pageTitle!.isEmpty {
-                        print("   🔄 No title from attributedTitle, fetching from original URL...")
-                        self?.fetchTitleFromURL(urlString) { fetchedTitle in
-                            let finalTitle = fetchedTitle ?? pageTitle
-                            print("   📌 Final title to save: \(finalTitle ?? "None")")
-                            self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: finalTitle, originalURL: urlString)
-                            DispatchQueue.main.async {
-                                self?.showCheckmark(sourceApp: detectedSource)
-                            }
-                        }
-                    } else {
-                        self?.save(urlString: transformedURL, sourceApp: detectedSource, pageTitle: pageTitle, originalURL: urlString)
-                        DispatchQueue.main.async {
-                            self?.showCheckmark(sourceApp: detectedSource)
-                        }
-                    }
-                }
-                return
-            }
-        }
-
-        print("⚠️  No URL or Plain Text found in attachments")
-        log("⚠️ No URL or Plain Text attachment found — dumping payload details")
-        logUnsupportedPayloadAndComplete()
     }
 
-    /// Aucun type pris en charge n'a été trouvé : on capture TOUT ce qu'on
-    /// peut sur l'extension item (titres, userInfo, attachments, UTI déclarés,
-    /// aperçu du contenu chargé par type) dans le log fichier lu par l'app.
-    /// Utile pour découvrir quelles apps partagent quoi, et ajouter ensuite
-    /// le support du type correspondant.
+    /// Traitement d'UN attachement isolé. Détermine son kind et déclenche
+    /// le pipeline approprié. Appelle `onDone(true)` si l'item a été
+    /// sauvegardé, `onDone(false)` sinon (type inconnu ou erreur).
+    private func processOneAttachment(_ attachment: NSItemProvider,
+                                      sourceApp: String?,
+                                      pageTitle: String?,
+                                      onDone: @escaping (Bool) -> Void) {
+        // ===== Image (public.image) =====
+        if attachment.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+            log("🖼 Image branch matched. Loading…")
+            attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { [weak self] data, _ in
+                guard let imageURL = data as? URL, imageURL.isFileURL else {
+                    self?.log("⚠️ Image loadItem ne renvoie pas de file URL")
+                    onDone(false); return
+                }
+                let (srcModDate, gps): (Double?, (lat: Double, lon: Double)?) = {
+                    let didStart = imageURL.startAccessingSecurityScopedResource()
+                    defer { if didStart { imageURL.stopAccessingSecurityScopedResource() } }
+                    var mod: Double? = nil
+                    if let attrs = try? FileManager.default.attributesOfItem(atPath: imageURL.path),
+                       let d = attrs[.modificationDate] as? Date {
+                        mod = d.timeIntervalSince1970
+                    }
+                    return (mod, Self.readGPS(from: imageURL))
+                }()
+                guard let copied = self?.copyFileToAppGroup(originalURL: imageURL) else {
+                    self?.log("⚠️ Échec copie photo")
+                    onDone(false); return
+                }
+                let title = (pageTitle?.isEmpty == false) ? pageTitle : imageURL.lastPathComponent
+                self?.save(urlString: copied.absoluteString,
+                           sourceApp: sourceApp ?? "Photos",
+                           pageTitle: title,
+                           kind: "photo",
+                           modifiedAt: srcModDate,
+                           latitude: gps?.lat,
+                           longitude: gps?.lon)
+                onDone(true)
+            }
+            return
+        }
+        // ===== Audio (public.audio) =====
+        if attachment.hasItemConformingToTypeIdentifier(UTType.audio.identifier) {
+            log("🎵 Audio branch matched. Loading…")
+            attachment.loadItem(forTypeIdentifier: UTType.audio.identifier, options: nil) { [weak self] data, _ in
+                guard let audioURL = data as? URL, audioURL.isFileURL else {
+                    onDone(false); return
+                }
+                let srcModDate: Double? = {
+                    let didStart = audioURL.startAccessingSecurityScopedResource()
+                    defer { if didStart { audioURL.stopAccessingSecurityScopedResource() } }
+                    if let attrs = try? FileManager.default.attributesOfItem(atPath: audioURL.path),
+                       let d = attrs[.modificationDate] as? Date {
+                        return d.timeIntervalSince1970
+                    }
+                    return nil
+                }()
+                guard let copied = self?.copyFileToAppGroup(originalURL: audioURL) else {
+                    onDone(false); return
+                }
+                let title = (pageTitle?.isEmpty == false) ? pageTitle : audioURL.lastPathComponent
+                self?.save(urlString: copied.absoluteString,
+                           sourceApp: sourceApp ?? "Audio",
+                           pageTitle: title,
+                           kind: "audio",
+                           modifiedAt: srcModDate)
+                onDone(true)
+            }
+            return
+        }
+        // ===== Video (public.movie) =====
+        if attachment.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
+            log("🎬 Video branch matched. Loading…")
+            attachment.loadItem(forTypeIdentifier: UTType.movie.identifier, options: nil) { [weak self] data, _ in
+                guard let videoURL = data as? URL, videoURL.isFileURL else {
+                    onDone(false); return
+                }
+                let srcModDate: Double? = {
+                    let didStart = videoURL.startAccessingSecurityScopedResource()
+                    defer { if didStart { videoURL.stopAccessingSecurityScopedResource() } }
+                    if let attrs = try? FileManager.default.attributesOfItem(atPath: videoURL.path),
+                       let d = attrs[.modificationDate] as? Date {
+                        return d.timeIntervalSince1970
+                    }
+                    return nil
+                }()
+                guard let copied = self?.copyFileToAppGroup(originalURL: videoURL) else {
+                    onDone(false); return
+                }
+                let title = (pageTitle?.isEmpty == false) ? pageTitle : videoURL.lastPathComponent
+                self?.save(urlString: copied.absoluteString,
+                           sourceApp: sourceApp ?? "Videos",
+                           pageTitle: title,
+                           kind: "video",
+                           modifiedAt: srcModDate)
+                onDone(true)
+            }
+            return
+        }
+        // ===== URL (public.url) — file:// ou http(s) =====
+        if attachment.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
+            log("🔗 URL branch matched. Loading…")
+            attachment.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] data, _ in
+                if let fileURL = data as? URL, fileURL.isFileURL {
+                    let srcModDate: Double? = {
+                        let didStart = fileURL.startAccessingSecurityScopedResource()
+                        defer { if didStart { fileURL.stopAccessingSecurityScopedResource() } }
+                        if let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+                           let d = attrs[.modificationDate] as? Date {
+                            return d.timeIntervalSince1970
+                        }
+                        return nil
+                    }()
+                    guard let copied = self?.copyFileToAppGroup(originalURL: fileURL) else {
+                        onDone(false); return
+                    }
+                    let title = (pageTitle?.isEmpty == false) ? pageTitle : fileURL.lastPathComponent
+                    self?.save(urlString: copied.absoluteString,
+                               sourceApp: sourceApp ?? "Files",
+                               pageTitle: title,
+                               kind: "file",
+                               modifiedAt: srcModDate)
+                    onDone(true)
+                    return
+                }
+                var urlString: String?
+                if let url = data as? URL, url.scheme == "http" || url.scheme == "https" {
+                    urlString = url.absoluteString
+                } else if let str = data as? String,
+                          let url = URL(string: str),
+                          url.scheme == "http" || url.scheme == "https" {
+                    urlString = str
+                }
+                guard let urlString = urlString else {
+                    onDone(false); return
+                }
+                let detectedSource = self?.detectSourceBeforeTransform(urlString) ?? sourceApp
+                let transformedURL = self?.transform(urlString: urlString) ?? urlString
+                if pageTitle == nil || pageTitle!.isEmpty {
+                    self?.fetchTitleFromURL(urlString) { fetchedTitle in
+                        let finalTitle = fetchedTitle ?? pageTitle
+                        self?.save(urlString: transformedURL, sourceApp: detectedSource,
+                                   pageTitle: finalTitle, originalURL: urlString)
+                        onDone(true)
+                    }
+                } else {
+                    self?.save(urlString: transformedURL, sourceApp: detectedSource,
+                               pageTitle: pageTitle, originalURL: urlString)
+                    onDone(true)
+                }
+            }
+            return
+        }
+        // ===== Plain text (public.plain-text) =====
+        if attachment.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+            log("📝 Plain Text branch matched. Loading…")
+            attachment.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] data, _ in
+                guard let str = data as? String else {
+                    onDone(false); return
+                }
+                if let url = URL(string: str),
+                   url.scheme == "http" || url.scheme == "https" {
+                    let detectedSource = self?.detectSourceBeforeTransform(str) ?? sourceApp
+                    let transformedURL = self?.transform(urlString: str) ?? str
+                    if pageTitle == nil || pageTitle!.isEmpty {
+                        self?.fetchTitleFromURL(str) { fetchedTitle in
+                            let finalTitle = fetchedTitle ?? pageTitle
+                            self?.save(urlString: transformedURL, sourceApp: detectedSource,
+                                       pageTitle: finalTitle, originalURL: str)
+                            onDone(true)
+                        }
+                    } else {
+                        self?.save(urlString: transformedURL, sourceApp: detectedSource,
+                                   pageTitle: pageTitle, originalURL: str)
+                        onDone(true)
+                    }
+                    return
+                }
+                let firstLine = str.split(whereSeparator: { $0.isNewline }).first.map(String.init) ?? str
+                let textTitle = (pageTitle?.isEmpty == false) ? pageTitle : String(firstLine.prefix(80))
+                self?.save(urlString: str, sourceApp: sourceApp ?? "Text",
+                           pageTitle: textTitle, kind: "text")
+                onDone(true)
+            }
+            return
+        }
+        log("⚠️ Attachment unsupported: \(attachment.registeredTypeIdentifiers)")
+        onDone(false)
+    }
     private func logUnsupportedPayloadAndComplete() {
         // Affiche l'indicateur visuel « non supporté » avec le même timing
         // que showCheckmark. complete() sera appelé par showUnsupported
@@ -848,7 +738,7 @@ class ShareViewController: UIViewController {
         
         return "Web Browser"
     }
-    
+
     /// Extrait le domaine principal d'une URL
     private func extractDomain(from urlString: String) -> String? {
         guard let url = URL(string: urlString),

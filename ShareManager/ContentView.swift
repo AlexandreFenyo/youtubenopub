@@ -4,6 +4,7 @@ import QuickLook
 import CoreLocation
 import Vision
 import UniformTypeIdentifiers
+import CoreSpotlight
 #if canImport(Translation)
 import Translation
 #endif
@@ -158,7 +159,6 @@ struct ContentView: View {
     @State private var typeFilter: String = "all"
     @State private var sortOrder: SortOrder = .insertion
     @State private var selection: Set<String> = []
-    @State private var showBatchMoveSheet: Bool = false
     @State private var clipboardCandidate: URL? = nil
     @State private var clipboardLastChangeCount: Int = 0
     @State private var editingNoteItem: SharedItem? = nil
@@ -229,8 +229,69 @@ struct ContentView: View {
         selectedFolder ?? StoreKeys.defaultFolder
     }
 
+    /// Lit la sélection sidebar pour distinguer smart folder vs folder normal.
+    private func resolveSelection(_ raw: String?) -> (smart: SmartFolder?, folder: String?) {
+        guard let raw else { return (nil, nil) }
+        if raw.hasPrefix("smart:") {
+            let key = String(raw.dropFirst("smart:".count))
+            return (SmartFolder(rawValue: key), nil)
+        }
+        return (nil, raw)
+    }
+
     private var currentItems: [SharedItem] {
-        items.filter { $0.folder == currentFolder }
+        var result: [SharedItem]
+        // 1. Smart folder ou folder utilisateur
+        if let sf = smartFolder {
+            switch sf {
+            case .all:
+                result = items
+            case .recent7days:
+                let cutoff = Date().timeIntervalSince1970 - 7 * 86400
+                result = items.filter { $0.timestamp >= cutoff }
+            case .unreadURLs:
+                result = items.filter { isUnread($0) }
+            case .withLocation:
+                result = items.filter { $0.latitude != nil && $0.longitude != nil }
+            case .photosOnly:
+                result = items.filter { $0.effectiveKind == "photo" }
+            }
+        } else {
+            result = items.filter { $0.folder == currentFolder }
+        }
+        // 2. Filtre par type d'item
+        if typeFilter != "all" {
+            result = result.filter { $0.effectiveKind == typeFilter }
+        }
+        // 3. Recherche full-text
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !query.isEmpty {
+            result = result.filter { item in
+                let bag = [
+                    item.title,
+                    item.url,
+                    item.originalURL,
+                    item.sourceApp,
+                    item.placeName,
+                    item.note,
+                ].compactMap { $0 }.joined(separator: "\n").lowercased()
+                return bag.contains(query)
+            }
+        }
+        // 4. Tri
+        switch sortOrder {
+        case .insertion:
+            break
+        case .dateNewest:
+            result.sort { ($0.modifiedAt ?? $0.timestamp) > ($1.modifiedAt ?? $1.timestamp) }
+        case .dateOldest:
+            result.sort { ($0.modifiedAt ?? $0.timestamp) < ($1.modifiedAt ?? $1.timestamp) }
+        case .titleAZ:
+            result.sort { ($0.title ?? $0.url).localizedCaseInsensitiveCompare($1.title ?? $1.url) == .orderedAscending }
+        case .sourceAZ:
+            result.sort { ($0.sourceApp ?? "").localizedCaseInsensitiveCompare($1.sourceApp ?? "") == .orderedAscending }
+        }
+        return result
     }
 
     // MARK: - Body
@@ -258,6 +319,11 @@ struct ContentView: View {
                 updateItemTitle(id: item.id, to: newTitle)
             }
         }
+        .sheet(item: $editingNoteItem) { item in
+            EditNoteView(initialNote: item.note ?? "") { newNote in
+                updateItemNote(id: item.id, to: newNote)
+            }
+        }
         .sheet(isPresented: $showDebugLogs) { debugLogsSheet }
         .overlay(alignment: .top) { themeOverlay }
         .alert("New Folder", isPresented: $showNewFolderAlert) {
@@ -282,6 +348,7 @@ struct ContentView: View {
             loadFolders()
             loadSelectedFolder()
             loadItems()
+            checkClipboardForURL()
             // Lance automatiquement l'actualisation batch des dates URL au
             // démarrage. Le bouton du menu « … » reflète l'état en cours.
             if refreshTask == nil && hasURLItems {
@@ -293,9 +360,11 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             loadItems()
+            checkClipboardForURL()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             loadItems()
+            checkClipboardForURL()
         }
         .onReceive(Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()) { _ in
             loadItems()
@@ -306,10 +375,27 @@ struct ContentView: View {
                 blinkPhase.toggle()
             }
         }
+        .onContinueUserActivity(CSSearchableItemActionType) { activity in
+            if let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+               let item = items.first(where: { $0.id == id }) {
+                selectedFolder = item.folder
+                switch item.effectiveKind {
+                case "file", "photo", "video", "audio":
+                    if let u = URL(string: item.url) { previewFileURL = u }
+                case "text":
+                    textToPreview = TextPreviewPayload(text: item.url, title: item.title)
+                default:
+                    if let u = URL(string: item.url) { safariFullScreenURL = u }
+                }
+            }
+        }
         .onChange(of: selectedFolder) { _, newValue in
+            let resolved = resolveSelection(newValue)
+            smartFolder = resolved.smart
             if let newValue {
                 UserDefaults(suiteName: appGroup)?.set(newValue, forKey: StoreKeys.selectedFolder)
             }
+            selection.removeAll()
         }
         .background(labelTranslatorHost)
         .sheet(item: $backupShareURL) { url in
@@ -383,23 +469,39 @@ struct ContentView: View {
     @ViewBuilder
     private var sidebar: some View {
         List(selection: $selectedFolder) {
-            ForEach(folders, id: \.self) { folder in
-                HStack {
-                    Image(systemName: folder == StoreKeys.defaultFolder ? "tray.fill" : "folder")
-                    Text(displayName(forFolder: folder))
-                    Spacer()
-                    Text("\(items.filter { $0.folder == folder }.count)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .monospacedDigit()
+            Section("Smart") {
+                ForEach(SmartFolder.allCases) { sf in
+                    HStack {
+                        Image(systemName: sf.systemImage)
+                        Text(sf.label)
+                        Spacer()
+                        Text("\(smartCount(sf))")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+                    .tag("smart:\(sf.rawValue)")
                 }
-                .tag(folder)
-                .contextMenu {
-                    if folder != StoreKeys.defaultFolder {
-                        Button(role: .destructive) {
-                            folderToDelete = folder
-                        } label: {
-                            Label("Delete Folder", systemImage: "trash")
+            }
+            Section("Folders") {
+                ForEach(folders, id: \.self) { folder in
+                    HStack {
+                        Image(systemName: folder == StoreKeys.defaultFolder ? "tray.fill" : "folder")
+                        Text(displayName(forFolder: folder))
+                        Spacer()
+                        Text("\(items.filter { $0.folder == folder }.count)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+                    .tag(folder)
+                    .contextMenu {
+                        if folder != StoreKeys.defaultFolder {
+                            Button(role: .destructive) {
+                                folderToDelete = folder
+                            } label: {
+                                Label("Delete Folder", systemImage: "trash")
+                            }
                         }
                     }
                 }
@@ -418,27 +520,45 @@ struct ContentView: View {
         }
     }
 
+    private func smartCount(_ sf: SmartFolder) -> Int {
+        switch sf {
+        case .all:          return items.count
+        case .recent7days:  let c = Date().timeIntervalSince1970 - 7 * 86400; return items.filter { $0.timestamp >= c }.count
+        case .unreadURLs:   return items.filter { isUnread($0) }.count
+        case .withLocation: return items.filter { $0.latitude != nil && $0.longitude != nil }.count
+        case .photosOnly:   return items.filter { $0.effectiveKind == "photo" }.count
+        }
+    }
+
     // MARK: - Detail
 
     @ViewBuilder
     private var detail: some View {
         Group {
-            if currentItems.isEmpty {
-                emptyState
-            } else {
-                List {
-                    ForEach(currentItems) { item in
-                        itemRow(item)
+            VStack(spacing: 0) {
+                clipboardBanner
+                filterBanner
+                if currentItems.isEmpty {
+                    Spacer(minLength: 0)
+                    emptyState
+                    Spacer(minLength: 0)
+                } else {
+                    List(selection: $selection) {
+                        ForEach(currentItems) { item in
+                            itemRow(item)
+                                .tag(item.id)
+                        }
+                        .onDelete(perform: deleteItems)
+                        .onMove(perform: moveItems)
                     }
-                    .onDelete(perform: deleteItems)
-                    .onMove(perform: moveItems)
-                }
-                .refreshable {
-                    await pullToRefreshDates()
+                    .refreshable {
+                        await pullToRefreshDates()
+                    }
                 }
             }
         }
-        .navigationTitle(displayName(forFolder: currentFolder))
+        .searchable(text: $searchQuery, placement: .navigationBarDrawer(displayMode: .always))
+        .navigationTitle(detailTitle)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button {
@@ -447,10 +567,13 @@ struct ContentView: View {
                     Image(systemName: colorSchemePreference == 1 ? "moon.fill" : colorSchemePreference == 2 ? "sun.max.fill" : "circle.lefthalf.filled")
                 }
             }
-            if !currentItems.isEmpty {
+            if !items.isEmpty {
                 ToolbarItem(placement: .navigationBarLeading) {
                     EditButton()
                 }
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                filterSortMenu
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 settingsMenu
@@ -464,23 +587,246 @@ struct ContentView: View {
                     }
                 }
             }
+            // Bottom bar pour les opérations en lot quand selection non vide
+            ToolbarItemGroup(placement: .bottomBar) {
+                if !selection.isEmpty {
+                    Menu {
+                        ForEach(folders, id: \.self) { folder in
+                            Button {
+                                moveSelected(to: folder)
+                            } label: {
+                                Label(displayName(forFolder: folder),
+                                      systemImage: folder == StoreKeys.defaultFolder ? "tray" : "folder")
+                            }
+                        }
+                    } label: {
+                        Label("Move", systemImage: "folder")
+                    }
+                    Spacer()
+                    Text("\(selection.count)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                    Spacer()
+                    Button(role: .destructive) {
+                        deleteSelected()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                }
+            }
         }
     }
 
-    private var emptyState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "link.circle")
-                .font(.system(size: 60))
-                .foregroundColor(.secondary)
-            Text("No shared URLs or items")
-                .font(.title2)
-                .foregroundColor(.secondary)
-            Text("This app stores URLs and items you share from other apps using the Share button")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
+    private var detailTitle: String {
+        if let sf = smartFolder { return sf.label }
+        return displayName(forFolder: currentFolder)
+    }
+
+    private var filterIsActive: Bool {
+        typeFilter != "all" || sortOrder != .insertion || !searchQuery.isEmpty
+    }
+
+    /// Menu unifié filtre + tri. L'icône passe en .fill + tint bleu quand
+    /// au moins un filtre/tri/recherche est actif → indice visuel
+    /// permanent dans la toolbar.
+    private var filterSortMenu: some View {
+        Menu {
+            Picker("Filter", selection: $typeFilter) {
+                Label("All", systemImage: "rectangle.grid.2x2").tag("all")
+                Label("URLs", systemImage: "globe").tag("url")
+                Label("Files", systemImage: "doc").tag("file")
+                Label("Photos", systemImage: "photo").tag("photo")
+                Label("Videos", systemImage: "video").tag("video")
+                Label("Audio", systemImage: "waveform").tag("audio")
+                Label("Text", systemImage: "text.alignleft").tag("text")
+            }
+            Divider()
+            Picker("Sort", selection: $sortOrder) {
+                ForEach(SortOrder.allCases) { o in
+                    Text(o.label).tag(o)
+                }
+            }
+            if filterIsActive {
+                Divider()
+                Button(role: .destructive) {
+                    typeFilter = "all"
+                    sortOrder = .insertion
+                    searchQuery = ""
+                } label: {
+                    Label("Clear filters", systemImage: "xmark.circle")
+                }
+            }
+        } label: {
+            Image(systemName: filterIsActive
+                  ? "line.3.horizontal.decrease.circle.fill"
+                  : "line.3.horizontal.decrease.circle")
+                .foregroundColor(filterIsActive ? .blue : .accentColor)
         }
+    }
+
+    /// Bandeau récapitulatif des filtres/tris actifs, juste sous la liste
+    /// quand au moins une condition est appliquée. Permet de comprendre
+    /// d'un coup d'œil pourquoi la liste affichée est incomplète.
+    @ViewBuilder
+    private var filterBanner: some View {
+        if filterIsActive {
+            HStack(spacing: 8) {
+                Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                    .foregroundColor(.blue)
+                if typeFilter != "all" {
+                    chip(text: typeFilterLabel) { typeFilter = "all" }
+                }
+                if sortOrder != .insertion {
+                    chip(text: sortOrder.label) { sortOrder = .insertion }
+                }
+                if !searchQuery.isEmpty {
+                    chip(text: "“\(searchQuery)”") { searchQuery = "" }
+                }
+                Spacer()
+                Button("Clear filters") {
+                    typeFilter = "all"
+                    sortOrder = .insertion
+                    searchQuery = ""
+                }
+                .font(.caption)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Color.blue.opacity(0.10))
+        }
+    }
+
+    private var typeFilterLabel: String {
+        switch typeFilter {
+        case "url":   return String(localized: "URLs")
+        case "file":  return String(localized: "Files")
+        case "photo": return String(localized: "Photos")
+        case "video": return String(localized: "Videos")
+        case "audio": return String(localized: "Audio")
+        case "text":  return String(localized: "Text")
+        default:      return String(localized: "All")
+        }
+    }
+
+    @ViewBuilder
+    private func chip(text: String, onClear: @escaping () -> Void) -> some View {
+        HStack(spacing: 4) {
+            Text(text)
+                .font(.caption)
+                .lineLimit(1)
+            Button(action: onClear) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.blue.opacity(0.15))
+        .clipShape(Capsule())
+    }
+
+    /// Bandeau présentant l'URL trouvée dans le presse-papiers au lancement.
+    @ViewBuilder
+    private var clipboardBanner: some View {
+        if let url = clipboardCandidate {
+            HStack(spacing: 12) {
+                Image(systemName: "doc.on.clipboard")
+                    .foregroundColor(.blue)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Add this link from clipboard?")
+                        .font(.subheadline).fontWeight(.medium)
+                    Text(url.absoluteString)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button("Add") {
+                    addItemFromClipboard(url)
+                    clipboardCandidate = nil
+                }
+                .buttonStyle(.borderedProminent)
+                Button {
+                    clipboardCandidate = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial)
+        }
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if isAnyConstraintActive {
+            // Vide à cause d'un filtre / smart folder / recherche.
+            VStack(spacing: 16) {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                    .font(.system(size: 60))
+                    .foregroundColor(.secondary)
+                Text("No items match the current filter")
+                    .font(.title3)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                if let label = activeConstraintsSummary {
+                    Text("(\(label))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                }
+                Button("Clear filters") {
+                    typeFilter = "all"
+                    sortOrder = .insertion
+                    searchQuery = ""
+                    smartFolder = nil
+                    selectedFolder = StoreKeys.defaultFolder
+                }
+                .buttonStyle(.bordered)
+            }
+        } else {
+            VStack(spacing: 16) {
+                Image(systemName: "link.circle")
+                    .font(.system(size: 60))
+                    .foregroundColor(.secondary)
+                Text("No shared URLs or items")
+                    .font(.title2)
+                    .foregroundColor(.secondary)
+                Text("This app stores URLs and items you share from other apps using the Share button")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+        }
+    }
+
+    /// Vrai si AU MOINS UN critère restreint la liste affichée (filtre type,
+    /// recherche, tri non manuel, smart folder spécifique). Le folder par
+    /// défaut sans rien ne compte pas comme "contrainte".
+    private var isAnyConstraintActive: Bool {
+        typeFilter != "all"
+            || !searchQuery.isEmpty
+            || sortOrder != .insertion
+            || smartFolder != nil
+    }
+
+    /// Résumé textuel des contraintes actives, à afficher entre parenthèses
+    /// dans l'écran vide. Renvoie nil si rien à afficher.
+    private var activeConstraintsSummary: String? {
+        var parts: [String] = []
+        if let sf = smartFolder { parts.append(sf.label) }
+        if typeFilter != "all" { parts.append(typeFilterLabel) }
+        if !searchQuery.isEmpty { parts.append("“\(searchQuery)”") }
+        if sortOrder != .insertion { parts.append(sortOrder.label) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private var hasURLItems: Bool {
@@ -640,6 +986,7 @@ struct ContentView: View {
 
             dateRow(for: item)
             placeRow(for: item)
+            noteRow(for: item)
         }
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -661,11 +1008,23 @@ struct ContentView: View {
             } label: {
                 Label("Edit title", systemImage: "pencil")
             }
+            Button {
+                editingNoteItem = item
+            } label: {
+                Label("Edit note", systemImage: "note.text")
+            }
             if kind == "url" {
                 Button {
                     UIPasteboard.general.string = item.originalURL ?? item.url
                 } label: {
                     Label("Copy URL", systemImage: "doc.on.doc")
+                }
+                if !isUnread(item) {
+                    Button {
+                        markAsUnread(itemID: item.id)
+                    } label: {
+                        Label("Mark as unread", systemImage: "circle.inset.filled")
+                    }
                 }
             } else if kind == "text" {
                 Button {
@@ -674,6 +1033,8 @@ struct ContentView: View {
                     Label("Copy text", systemImage: "doc.on.doc")
                 }
             }
+            // Re-partage via la feuille système iOS
+            shareLinkForItem(item)
             if folders.count > 1 {
                 Menu {
                     ForEach(folders, id: \.self) { folder in
@@ -839,6 +1200,8 @@ struct ContentView: View {
         // pour lesquelles la config autorise l'appel. Une seule tentative
         // par item (succès ou échec) pour éviter tout spam API.
         triggerPendingAIDescriptions()
+        triggerPendingOCR()
+        Spotlight.index(items)
     }
 
     private func triggerPendingAIDescriptions() {
@@ -942,13 +1305,20 @@ struct ContentView: View {
         removedItems.forEach { removeFileIfLocal($0.url) }
         let removedIDs = Set(removedItems.map(\.id))
         items.removeAll { removedIDs.contains($0.id) }
+        Spotlight.deindex(Array(removedIDs))
         saveItems()
     }
 
     private func clearFolder() {
-        let removedItems = items.filter { $0.folder == currentFolder }
+        // Supprime ce qui est ACTUELLEMENT affiché : compatible avec les
+        // smart folders, les filtres par type et la recherche. L'ancienne
+        // version filtrait par `folder == currentFolder`, ce qui ne matchait
+        // rien quand on était dans un smart folder (clé "smart:…").
+        let removedItems = currentItems
+        let removedIDs = Set(removedItems.map(\.id))
         removedItems.forEach { removeFileIfLocal($0.url) }
-        items.removeAll { $0.folder == currentFolder }
+        Spotlight.deindex(removedItems.map(\.id))
+        items.removeAll { removedIDs.contains($0.id) }
         saveItems()
     }
 
@@ -961,6 +1331,180 @@ struct ContentView: View {
     private func removeFileIfLocal(_ urlString: String) {
         guard let url = URL(string: urlString), url.isFileURL else { return }
         try? FileManager.default.removeItem(at: url)
+    }
+
+    // MARK: - Note row + edit
+
+    @ViewBuilder
+    private func noteRow(for item: SharedItem) -> some View {
+        if let note = item.note, !note.isEmpty {
+            HStack(alignment: .top, spacing: 4) {
+                Image(systemName: "note.text")
+                    .font(.caption2)
+                Text(note)
+                    .font(.caption2)
+                    .italic()
+                    .lineLimit(3)
+            }
+            .foregroundColor(.secondary)
+        }
+    }
+
+    private func updateItemNote(id: String, to note: String) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        items[idx].note = note.isEmpty ? nil : note
+        saveItems()
+    }
+
+    // MARK: - Re-share from app
+
+    @ViewBuilder
+    private func shareLinkForItem(_ item: SharedItem) -> some View {
+        let kind = item.effectiveKind
+        if kind == "text" {
+            ShareLink(item: item.url) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+        } else if let url = URL(string: item.originalURL ?? item.url) {
+            ShareLink(item: url) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+        }
+    }
+
+    // MARK: - Batch operations
+
+    private func deleteSelected() {
+        let ids = selection
+        let removed = items.filter { ids.contains($0.id) }
+        removed.forEach { removeFileIfLocal($0.url) }
+        items.removeAll { ids.contains($0.id) }
+        Spotlight.deindex(Array(ids))
+        saveItems()
+        selection.removeAll()
+    }
+
+    private func moveSelected(to folder: String) {
+        let ids = selection
+        for i in 0..<items.count {
+            if ids.contains(items[i].id) {
+                items[i].folder = folder
+            }
+        }
+        saveItems()
+        selection.removeAll()
+    }
+
+    // MARK: - Clipboard capture
+
+    private func checkClipboardForURL() {
+        let pb = UIPasteboard.general
+        // Évite la lecture répétée du même contenu
+        guard pb.changeCount != clipboardLastChangeCount else { return }
+        clipboardLastChangeCount = pb.changeCount
+
+        let candidate: URL? = {
+            if let url = pb.url, url.scheme == "http" || url.scheme == "https" {
+                return url
+            }
+            if let s = pb.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+               let url = URL(string: s),
+               url.scheme == "http" || url.scheme == "https" {
+                return url
+            }
+            return nil
+        }()
+        guard let url = candidate else { return }
+        // Skip si déjà présent
+        if items.contains(where: { ($0.originalURL ?? $0.url) == url.absoluteString }) {
+            return
+        }
+        clipboardCandidate = url
+    }
+
+    private func addItemFromClipboard(_ url: URL) {
+        let now = Date().timeIntervalSince1970
+        let item = SharedItem(
+            id: UUID().uuidString,
+            url: url.absoluteString,
+            title: nil,
+            sourceApp: "Clipboard",
+            folder: smartFolder == nil ? currentFolder : StoreKeys.defaultFolder,
+            timestamp: now,
+            kind: "url",
+            modifiedAt: nil,
+            latitude: nil,
+            longitude: nil,
+            placeName: nil,
+            aiDescribed: nil,
+            lastSeenModifiedAt: nil,
+            originalURL: nil,
+            note: nil,
+            ocrDone: nil
+        )
+        items.insert(item, at: 0)
+        saveItems()
+    }
+
+    // MARK: - OCR (photos)
+
+    private func triggerPendingOCR() {
+        for item in items where item.effectiveKind == "photo"
+                                && item.ocrDone != true
+                                // On laisse l'IA finir avant l'OCR pour bien
+                                // appender le texte OCR derrière la description.
+                                && (item.aiDescribed == true || !UserDefaults.standard.bool(forKey: "describeImagesEnabled")) {
+            startOCR(for: item)
+        }
+    }
+
+    private func startOCR(for item: SharedItem) {
+        // Marqueur immédiat pour éviter les doubles déclenchements.
+        guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[idx].ocrDone = true
+        let id = item.id
+        let urlString = item.url
+        Task.detached(priority: .utility) {
+            let text = await Self.recognizeText(in: urlString)
+            await MainActor.run {
+                appendOCRResult(id: id, ocrText: text)
+            }
+        }
+    }
+
+    private func appendOCRResult(id: String, ocrText: String?) {
+        guard let idx = items.firstIndex(where: { $0.id == id }),
+              let text = ocrText, !text.isEmpty else { return }
+        let collapsed = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "  ", with: " ")
+            .trimmingCharacters(in: .whitespaces)
+        guard !collapsed.isEmpty else { return }
+        let prefix = items[idx].title ?? URL(string: items[idx].url)?.lastPathComponent ?? items[idx].url
+        items[idx].title = "\(prefix) — \(collapsed)"
+        saveItems()
+    }
+
+    static func recognizeText(in urlString: String) async -> String? {
+        guard let url = URL(string: urlString), url.isFileURL,
+              let data = try? Data(contentsOf: url),
+              let cgImage = UIImage(data: data)?.cgImage else { return nil }
+        return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+            let request = VNRecognizeTextRequest { req, _ in
+                guard let observations = req.results as? [VNRecognizedTextObservation] else {
+                    continuation.resume(returning: nil); return
+                }
+                let lines = observations.compactMap { $0.topCandidates(1).first?.string }
+                continuation.resume(returning: lines.isEmpty ? nil : lines.joined(separator: "\n"))
+            }
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = true
+            do {
+                try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+            } catch {
+                continuation.resume(returning: nil)
+            }
+        }
     }
 
     // MARK: - Backup / restore
@@ -1124,7 +1668,9 @@ struct ContentView: View {
                     placeName: item.placeName,
                     aiDescribed: item.aiDescribed,
                     lastSeenModifiedAt: item.lastSeenModifiedAt,
-                    originalURL: item.originalURL
+                    originalURL: item.originalURL,
+                    note: item.note,
+                    ocrDone: item.ocrDone
                 )
                 result[i] = copy
             }
@@ -1163,6 +1709,16 @@ struct ContentView: View {
               let mod = items[idx].modifiedAt else { return }
         if items[idx].lastSeenModifiedAt != mod {
             items[idx].lastSeenModifiedAt = mod
+            saveItems()
+        }
+    }
+
+    /// Force le retour à l'état "non lu" : efface la date vue → si
+    /// `modifiedAt` est connu, l'item redevient en gras et bordeaux.
+    private func markAsUnread(itemID: String) {
+        guard let idx = items.firstIndex(where: { $0.id == itemID }) else { return }
+        if items[idx].lastSeenModifiedAt != nil {
+            items[idx].lastSeenModifiedAt = nil
             saveItems()
         }
     }
@@ -1807,6 +2363,30 @@ extension Array {
     }
 }
 
+/// Indexation Spotlight des items pour qu'ils soient retrouvés depuis la
+/// recherche système iOS. L'ID Spotlight est le SharedItem.id.
+enum Spotlight {
+    static let domain = "net.fenyo.apple.sharemanager.items"
+
+    static func index(_ items: [SharedItem]) {
+        let searchableItems = items.map { item -> CSSearchableItem in
+            let attrs = CSSearchableItemAttributeSet(contentType: .item)
+            attrs.title = item.title ?? URL(string: item.url)?.lastPathComponent ?? item.url
+            attrs.contentDescription = [item.note, item.placeName, item.sourceApp]
+                .compactMap { $0 }.joined(separator: " · ")
+            attrs.keywords = [item.effectiveKind, item.folder, item.sourceApp].compactMap { $0 }
+            return CSSearchableItem(uniqueIdentifier: item.id,
+                                    domainIdentifier: domain,
+                                    attributeSet: attrs)
+        }
+        CSSearchableIndex.default().indexSearchableItems(searchableItems) { _ in }
+    }
+
+    static func deindex(_ ids: [String]) {
+        CSSearchableIndex.default().deleteSearchableItems(withIdentifiers: ids) { _ in }
+    }
+}
+
 /// Présente la feuille de partage iOS pour un fichier (export du backup).
 struct BackupShareSheet: UIViewControllerRepresentable {
     let url: URL
@@ -1877,6 +2457,44 @@ struct LabelTranslator: View {
     }
 }
 #endif
+
+/// Feuille modale pour éditer la note (texte libre) d'un item.
+struct EditNoteView: View {
+    let initialNote: String
+    let onSave: (String) -> Void
+
+    @State private var text: String = ""
+    @FocusState private var focused: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            Form {
+                TextField("Note", text: $text, axis: .vertical)
+                    .lineLimit(3...12)
+                    .focused($focused)
+            }
+            .navigationTitle("Edit note")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel", role: .cancel) { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        onSave(text)
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+            .onAppear {
+                text = initialNote
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focused = true }
+            }
+        }
+    }
+}
 
 /// Feuille modale pour éditer le titre (première ligne affichée) d'un item.
 struct EditTitleView: View {

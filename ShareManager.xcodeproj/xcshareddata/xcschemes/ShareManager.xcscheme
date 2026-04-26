@@ -35,6 +35,20 @@
                ReferencedContainer = "container:ShareManager.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "9AB2408B5CDBD331EA54894C"
+               BuildableName = "ShareWidget.appex"
+               BlueprintName = "ShareWidget"
+               ReferencedContainer = "container:ShareManager.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
