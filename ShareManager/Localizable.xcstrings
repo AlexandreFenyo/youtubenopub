@@ -27686,6 +27686,1501 @@
           }
         }
       }
+    },
+    "Regenerate preview and date": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "te": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "es-MX": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "mr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "ms": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "en-AU": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "gu": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "en-CA": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "fr-CA": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "pa": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "sl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "or": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regénérer la vignette et la date"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "kn": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "ml": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Regenerate preview and date"
+          }
+        }
+      }
+    },
+    "Clear previews and dates of these URLs": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "te": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "es-MX": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "mr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "ms": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "en-AU": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "gu": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "en-CA": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "fr-CA": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "pa": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "sl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "or": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer les vignettes et dates de ces URLs"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "kn": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "ml": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews and dates of these URLs"
+          }
+        }
+      }
+    },
+    "Clear previews of these URLs": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "es-MX": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "ml": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "mr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "ms": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "en-AU": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "fr-CA": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "sl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer les vignettes de ces URLs"
+          }
+        },
+        "te": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "en-CA": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "gu": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "kn": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "pa": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        },
+        "or": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clear previews of these URLs"
+          }
+        }
+      }
+    },
+    "Background tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "en-CA": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "en-AU": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "gu": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "or": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "te": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tâches en cours"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background tasks"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "es-MX": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "fr-CA": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "ms": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "ml": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "mr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "sl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "pa": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "kn": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Background tasks"
+          }
+        }
+      }
+    },
+    "Refresh AI text": {
+      "extractionState": "manual",
+      "localizations": {
+        "ca": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "or": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "mr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "en-AU": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "te": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh AI text"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "ms": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "fr-CA": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "ml": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "en-CA": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "kn": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualiser les textes IA"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "gu": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "pa": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "sl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "es-MX": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Refresh AI text"
+          }
+        }
+      }
     }
   },
   "version": "1.1"

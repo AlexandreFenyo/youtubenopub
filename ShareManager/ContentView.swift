@@ -253,6 +253,26 @@ struct ContentView: View {
     @State private var geocodingIDs: Set<String> = []
     @State private var describingIDs: Set<String> = []
     @State private var generatingPreviewIDs: Set<String> = []
+    /// Handles vers les Tasks en vol pour la génération d'aperçus,
+    /// indexés par item.id. Permet de les annuler explicitement quand
+    /// l'utilisateur fait « Clear previews of these URLs » → la roue
+    /// disparaît immédiatement même si la capture WKWebView était
+    /// suspendue depuis longtemps.
+    @State private var previewTasks: [String: Task<Void, Never>] = [:]
+    /// Handles vers les Tasks de description IA / transcription audio.
+    @State private var aiTasks: [String: Task<Void, Never>] = [:]
+    /// Handles vers les Tasks de fetch Last-Modified URL.
+    @State private var dateFetchTasks: [String: Task<Void, Never>] = [:]
+    /// Handles vers les Tasks de reverse-geocoding photos.
+    @State private var geocodeTasks: [String: Task<Void, Never>] = [:]
+    /// Met en pause les auto-triggers (génération d'aperçus, IA, OCR,
+    /// transcription audio) après un « Stop refreshing » : sans cette
+    /// pause, le timer 100 ms relancerait immédiatement une nouvelle
+    /// génération pour les items dont `previewPath == nil` etc., et
+    /// la roue dentée réapparaîtrait. Le flag est remis à false dès
+    /// qu'on relance un refresh explicite (pull-to-refresh, menu …,
+    /// menu contextuel).
+    @State private var autoTriggersPaused: Bool = false
     @State private var showPreviewsSheet: Bool = false
     @State private var editingItem: SharedItem? = nil
     @State private var pendingLabelTranslations: [LabelTranslationJob] = []
@@ -500,14 +520,10 @@ struct ContentView: View {
             loadFolders()
             loadSelectedFolder()
             loadItems()
-            // Lance automatiquement l'actualisation batch des dates URL au
-            // démarrage. Le bouton du menu « … » reflète l'état en cours.
-            if refreshTask == nil && hasURLItems {
-                refreshTask = Task { @MainActor in
-                    await refreshAllURLDates()
-                    refreshTask = nil
-                }
-            }
+            // Plus de refresh automatique au démarrage : l'utilisateur
+            // doit explicitement tirer la liste vers le bas, ou choisir
+            // « Refresh previews and URL dates » dans le menu …, ou
+            // utiliser une entrée de menu contextuel sur une ligne.
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             loadItems()
@@ -860,7 +876,7 @@ struct ContentView: View {
                     Button {
                         clearPreviewsForCurrent()
                     } label: {
-                        Label("Clear previews of these items", systemImage: "rectangle.dashed")
+                        Label("Clear previews of these URLs", systemImage: "rectangle.dashed")
                     }
                     Button {
                         clearAITextForCurrent()
@@ -1113,18 +1129,38 @@ struct ContentView: View {
         items.contains { $0.effectiveKind == "url" }
     }
 
+    /// Vrai si la liste actuellement affichée contient au moins un
+    /// item passible d'IA (photo / video → description, audio →
+    /// transcription). Sert à n'afficher l'entrée « Refresh AI text »
+    /// du menu … que quand elle a du sens.
+    private var hasAIItems: Bool {
+        currentItems.contains {
+            let k = $0.effectiveKind
+            return k == "photo" || k == "video" || k == "audio"
+        }
+    }
+
     private var settingsMenu: some View {
         Menu {
             if hasURLItems {
                 Button {
                     toggleRefreshAllDates()
                 } label: {
-                    if refreshTask == nil {
-                        Label("Refresh previews and URL dates", systemImage: "arrow.clockwise")
-                    } else {
+                    if hasAnyActiveRefresh {
                         Label("Stop refreshing previews and URL dates", systemImage: "stop.circle")
+                    } else {
+                        Label("Refresh previews and URL dates", systemImage: "arrow.clockwise")
                     }
                 }
+            }
+            if hasAIItems {
+                Button {
+                    refreshAITextForCurrent()
+                } label: {
+                    Label("Refresh AI text", systemImage: "sparkles")
+                }
+            }
+            if hasURLItems || hasAIItems {
                 Divider()
             }
             Button {
@@ -1143,6 +1179,7 @@ struct ContentView: View {
                 Divider()
                 Button(role: .destructive) {
                     AICounters.resetAll()
+                    resetPerItemAICallLimits()
                 } label: {
                     Label("Reset AI counters", systemImage: "gauge.with.dots.needle.0percent")
                 }
@@ -1463,14 +1500,19 @@ struct ContentView: View {
                     Label("Reset AI call limit", systemImage: "arrow.counterclockwise")
                 }
             }
-            // « Regénérer la vignette » : disponible pour les types
-            // pour lesquels capturer un aperçu a un sens (pas audio,
-            // pas texte) et qui ont déjà une vignette à remplacer.
-            if canRegeneratePreview(item) && hasUsablePreview(item) {
+            // « Regénérer la vignette » au sens large : générer s'il n'y
+            // en a pas encore, regénérer s'il y en a déjà une. Toujours
+            // proposé pour les types qui supportent une vignette
+            // (canRegeneratePreview = pas audio, pas texte).
+            if canRegeneratePreview(item) {
                 Button {
                     regeneratePreview(for: item)
                 } label: {
-                    Label("Regenerate preview", systemImage: "rectangle.dashed")
+                    if item.effectiveKind == "url" {
+                        Label("Regenerate preview and date", systemImage: "rectangle.dashed")
+                    } else {
+                        Label("Regenerate preview", systemImage: "rectangle.dashed")
+                    }
                 }
             }
             // « Regénérer le texte IA » : disponible pour les types qui
@@ -1729,6 +1771,7 @@ struct ContentView: View {
     }
 
     private func triggerPendingAIDescriptions() {
+        guard !autoTriggersPaused else { return }
         guard UserDefaults.standard.bool(forKey: "describeImagesEnabled") else { return }
         let provider = UserDefaults.standard.string(forKey: "describeImagesProvider") ?? "anthropic"
         let apiKey = (UserDefaults.standard.string(forKey: "describeImagesAPIKey") ?? "")
@@ -1852,14 +1895,55 @@ struct ContentView: View {
     /// Efface les vignettes (PNG sur disque + champ `previewPath`) de
     /// tous les items actuellement affichés. Au prochain pull-to-refresh
     /// ou tick du timer 100 ms, `triggerPendingPreviews` les régénère.
-    /// Regénère la vignette d'un seul item : supprime le PNG sur
-    /// disque et remet `previewPath = nil` → la prochaine itération de
-    /// `triggerPendingPreviews` lance une nouvelle capture.
-    private func regeneratePreview(for item: SharedItem) {
+    /// Regénère la vignette d'un seul item. Pour une URL, regénère
+    /// AUSSI la date (Last-Modified) en parallèle — l'utilisateur voit
+    /// la roue tourner à la place de l'icône (`isItemBusy` vrai grâce à
+    /// `fetchingDateIDs`) ET « Fetching date… » à la place de la date
+    /// pendant que la requête HTTP HEAD se fait.
+    /// Regénère uniquement la vignette d'un item, SANS toucher à la
+    /// date Last-Modified — utile pour tous les types y compris les
+    /// URLs quand l'utilisateur veut juste rafraîchir le visuel.
+    private func regeneratePreviewOnly(for item: SharedItem) {
+        // On NE lève PAS le drapeau global `autoTriggersPaused` : sinon
+        // tous les autres items éligibles se mettraient à traiter
+        // aussi au prochain tick. À la place, on lance explicitement
+        // la génération pour ce seul item.
         removePreviewIfAny(item)
         guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[idx].previewPath = nil
         saveItems()
+        if !generatingPreviewIDs.contains(item.id) {
+            startPreviewGeneration(for: items[idx])
+        }
+    }
+
+    private func regeneratePreview(for item: SharedItem) {
+        // Pas de levée globale de `autoTriggersPaused` — on lance
+        // explicitement les tâches pour CET item uniquement.
+        removePreviewIfAny(item)
+        guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[idx].previewPath = nil
+        if items[idx].effectiveKind == "url" {
+            // Reset visuel de la date pour afficher « Fetching date… »
+            // pendant le refetch (le set `fetchingDateIDs` ajouté par
+            // `startFetchLastModified` suffit déjà à déclencher ce
+            // placeholder, mais on remet aussi `modifiedAt` à nil pour
+            // que le layout reste cohérent même si l'utilisateur
+            // scrolle hors écran et revient avant la fin du fetch).
+            items[idx].modifiedAt = nil
+            saveItems()
+            startFetchLastModified(for: items[idx])
+            // Lance aussi la génération de l'aperçu en parallèle, sans
+            // attendre la fin du fetch.
+            if !generatingPreviewIDs.contains(items[idx].id) {
+                startPreviewGeneration(for: items[idx])
+            }
+        } else {
+            saveItems()
+            if !generatingPreviewIDs.contains(items[idx].id) {
+                startPreviewGeneration(for: items[idx])
+            }
+        }
     }
 
     /// Regénère le texte IA d'un seul item : efface le titre IA et les
@@ -1868,20 +1952,56 @@ struct ContentView: View {
     /// relance le pipeline pour cet item, sous réserve du plafond
     /// per-item de 5 appels.
     private func regenerateAIText(for item: SharedItem) {
+        // Pas de levée globale de la pause — on lance la tâche pour
+        // CET item uniquement (description IA pour photo/video,
+        // transcription pour audio).
         guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[idx].title = nil
         items[idx].aiDescribed = nil
         items[idx].ocrDone = nil
         saveItems()
+        let kind = items[idx].effectiveKind
+        guard !describingIDs.contains(items[idx].id) else { return }
+        if kind == "audio" {
+            // Transcription audio (Apple Speech, on-device, pas de cap).
+            guard UserDefaults.standard.bool(forKey: "describeImagesEnabled") else { return }
+            startAudioTranscription(for: items[idx])
+        } else if kind == "photo" || kind == "video" {
+            // Description IA cloud ou Apple Vision — respect du toggle
+            // global et du plafond per-item.
+            guard UserDefaults.standard.bool(forKey: "describeImagesEnabled") else { return }
+            let provider = UserDefaults.standard.string(forKey: "describeImagesProvider") ?? "anthropic"
+            let apiKey = (UserDefaults.standard.string(forKey: "describeImagesAPIKey") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let customModel = (UserDefaults.standard.string(forKey: "describeImagesModel") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if provider != "apple" && apiKey.isEmpty { return }
+            if aiCallsCapped(items[idx], provider: provider) { return }
+            startAIDescribe(item: items[idx], provider: provider, apiKey: apiKey, customModel: customModel)
+        }
     }
 
+    /// Vide les vignettes des items URL actuellement affichés. NE
+    /// touche PAS aux dates et NE relance AUCUNE régénération
+    /// automatique : `previewPath` est posé à `""` (sentinelle
+    /// « cleared / failed » que `triggerPendingPreviews` ignore).
+    /// L'utilisateur peut ensuite régénérer ligne par ligne via le
+    /// menu contextuel ou en bulk via le pull-to-refresh / menu …
+    /// → « Refresh previews and URL dates ».
     private func clearPreviewsForCurrent() {
-        let snapshot = currentItems
+        let snapshot = currentItems.filter { $0.effectiveKind == "url" }
         let ids = Set(snapshot.map(\.id))
+        guard !ids.isEmpty else { return }
+        // Annule les éventuelles générations d'aperçus en vol pour ces
+        // items → la roue disparaît immédiatement, même si la capture
+        // WKWebView était bloquée sur le sémaphore ou en attente.
+        for id in ids { cancelPreviewTask(for: id) }
         for item in snapshot { removePreviewIfAny(item) }
-        for idx in items.indices where ids.contains(items[idx].id) {
-            items[idx].previewPath = nil
+        var newItems = items
+        for idx in newItems.indices where ids.contains(newItems[idx].id) {
+            newItems[idx].previewPath = ""
         }
+        items = newItems
         saveItems()
     }
 
@@ -1892,14 +2012,69 @@ struct ContentView: View {
     /// `triggerPendingOCR` / `triggerPendingAudioTranscriptions` les
     /// reconstruisent (sous réserve du plafond per-item de 5 appels et
     /// du toggle global IA).
+    /// Reset le texte IA des items photo/video/audio actuellement
+    /// affichés ET relance explicitement la génération IA pour chacun
+    /// d'eux. Différence clé avec `clearAITextForCurrent` (qui se
+    /// contente d'effacer sans relance) : on lance ici les
+    /// `startAIDescribe` / `startAudioTranscription` pour tous les
+    /// items concernés. Respect du toggle global, du provider, de la
+    /// clé API et du plafond per-item de 5.
+    private func refreshAITextForCurrent() {
+        let snapshot = currentItems.filter {
+            let k = $0.effectiveKind
+            return k == "photo" || k == "video" || k == "audio"
+        }
+        let ids = Set(snapshot.map(\.id))
+        guard !ids.isEmpty else { return }
+
+        var newItems = items
+        for idx in newItems.indices where ids.contains(newItems[idx].id) {
+            newItems[idx].title = nil
+            newItems[idx].aiDescribed = nil
+            newItems[idx].ocrDone = nil
+        }
+        items = newItems
+        saveItems()
+
+        guard UserDefaults.standard.bool(forKey: "describeImagesEnabled") else { return }
+        let provider = UserDefaults.standard.string(forKey: "describeImagesProvider") ?? "anthropic"
+        let apiKey = (UserDefaults.standard.string(forKey: "describeImagesAPIKey") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let customModel = (UserDefaults.standard.string(forKey: "describeImagesModel") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let needKey = (provider != "apple")
+        if needKey && apiKey.isEmpty { return }
+
+        for it in items where ids.contains(it.id) && !describingIDs.contains(it.id) {
+            let kind = it.effectiveKind
+            if kind == "audio" {
+                startAudioTranscription(for: it)
+            } else if kind == "photo" || kind == "video" {
+                if aiCallsCapped(it, provider: provider) { continue }
+                startAIDescribe(item: it, provider: provider, apiKey: apiKey, customModel: customModel)
+            }
+        }
+    }
+
     private func clearAITextForCurrent() {
         let ids = Set(currentItems.filter { $0.aiDescribed == true }.map(\.id))
         guard !ids.isEmpty else { return }
-        for idx in items.indices where ids.contains(items[idx].id) {
-            items[idx].title = nil
-            items[idx].aiDescribed = nil
-            items[idx].ocrDone = nil
+        // Efface le titre IA SANS relancer aucune génération : la
+        // ligne retombe sur son fallback (nom de fichier pour
+        // photo/video/audio) — comme si l'IA n'avait jamais été
+        // activée pour cet item. On positionne `aiDescribed = true`
+        // pour bloquer toute relance auto par
+        // `triggerPendingAIDescriptions` /
+        // `triggerPendingAudioTranscriptions`. L'utilisateur peut
+        // toujours forcer une regénération via le menu contextuel
+        // « Regenerate AI text » d'une ligne précise.
+        var newItems = items
+        for idx in newItems.indices where ids.contains(newItems[idx].id) {
+            newItems[idx].title = nil
+            newItems[idx].aiDescribed = true
+            newItems[idx].ocrDone = true
         }
+        items = newItems
         saveItems()
     }
 
@@ -2011,6 +2186,7 @@ struct ContentView: View {
     // MARK: - OCR (photos)
 
     private func triggerPendingOCR() {
+        guard !autoTriggersPaused else { return }
         for item in items where (item.effectiveKind == "photo" || item.effectiveKind == "video")
                                 && item.ocrDone != true
                                 // On laisse l'IA finir avant l'OCR pour bien
@@ -2053,6 +2229,7 @@ struct ContentView: View {
     /// pas encore. `previewPath == ""` signifie tentative déjà faite et
     /// échouée → on ne réessaie pas.
     private func triggerPendingPreviews() {
+        guard !autoTriggersPaused else { return }
         for item in items where item.previewPath == nil
                                 && item.effectiveKind != "text"
                                 && !generatingPreviewIDs.contains(item.id) {
@@ -2063,15 +2240,33 @@ struct ContentView: View {
     private func startPreviewGeneration(for item: SharedItem) {
         generatingPreviewIDs.insert(item.id)
         let snapshot = item
-        Task.detached(priority: .utility) {
+        let task = Task.detached(priority: .utility) {
             let filename = await PreviewGenerator.generate(for: snapshot)
             await MainActor.run {
+                // Si la tâche a été annulée entretemps (clear preview
+                // par l'utilisateur), on ignore le résultat — l'état a
+                // déjà été nettoyé par `cancelPreviewTask`.
+                guard !Task.isCancelled else { return }
                 generatingPreviewIDs.remove(snapshot.id)
+                previewTasks.removeValue(forKey: snapshot.id)
+                updateBackgroundTasksCount()
                 guard let idx = items.firstIndex(where: { $0.id == snapshot.id }) else { return }
                 items[idx].previewPath = filename ?? ""
                 saveItems()
             }
         }
+        previewTasks[item.id] = task
+        updateBackgroundTasksCount()
+    }
+
+    /// Annule une éventuelle génération d'aperçu en cours pour cet
+    /// item et nettoie immédiatement l'état UI (la roue disparaît).
+    private func cancelPreviewTask(for id: String) {
+        if let task = previewTasks.removeValue(forKey: id) {
+            task.cancel()
+        }
+        generatingPreviewIDs.remove(id)
+        updateBackgroundTasksCount()
     }
 
     // MARK: - Audio transcription (speech-to-text)
@@ -2081,6 +2276,7 @@ struct ContentView: View {
     /// garantir une seule tentative par item (succès ou échec). Activé
     /// uniquement si l'utilisateur a laissé `describeImagesEnabled` à true.
     private func triggerPendingAudioTranscriptions() {
+        guard !autoTriggersPaused else { return }
         guard UserDefaults.standard.bool(forKey: "describeImagesEnabled") else { return }
         for item in items where item.effectiveKind == "audio"
                                 && item.aiDescribed != true
@@ -2093,13 +2289,18 @@ struct ContentView: View {
         describingIDs.insert(item.id)
         let id = item.id
         let urlString = item.url
-        Task.detached(priority: .utility) {
+        let task = Task.detached(priority: .utility) {
             let text = await Self.transcribeFirstSeconds(audioURLString: urlString, seconds: 15)
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 describingIDs.remove(id)
+                aiTasks.removeValue(forKey: id)
+                updateBackgroundTasksCount()
                 applyAudioTranscription(id: id, text: text)
             }
         }
+        aiTasks[id] = task
+        updateBackgroundTasksCount()
     }
 
     private func applyAudioTranscription(id: String, text: String?) {
@@ -2583,16 +2784,21 @@ struct ContentView: View {
         describingIDs.insert(item.id)
         let id = item.id
         let urlString = item.url
-        Task.detached(priority: .utility) {
+        let task = Task.detached(priority: .utility) {
             let description = await Self.describeImage(urlString: urlString,
                                                        provider: provider,
                                                        apiKey: apiKey,
                                                        customModel: customModel)
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 describingIDs.remove(id)
+                aiTasks.removeValue(forKey: id)
+                updateBackgroundTasksCount()
                 updateItemAfterAIDescribe(id: id, description: description, provider: provider)
             }
         }
+        aiTasks[id] = task
+        updateBackgroundTasksCount()
     }
 
     /// Plafond per-item : au-delà de 5 appels IA cloud, on n'invoque plus
@@ -2610,6 +2816,23 @@ struct ContentView: View {
     private func aiCallsHardCapped(_ item: SharedItem) -> Bool {
         return (item.aiCallsCount ?? 0) >= Self.aiCallsLimit
     }
+    /// Remet à zéro le compteur per-item d'appels IA (`aiCallsCount`)
+    /// pour TOUS les items. Appelé par « Reset AI counters » du menu …
+    /// → l'utilisateur peut relancer des descriptions IA sur des items
+    /// qui avaient atteint le plafond de 5.
+    private func resetPerItemAICallLimits() {
+        var newItems = items
+        var changed = false
+        for idx in newItems.indices where (newItems[idx].aiCallsCount ?? 0) > 0 {
+            newItems[idx].aiCallsCount = 0
+            changed = true
+        }
+        if changed {
+            items = newItems
+            saveItems()
+        }
+    }
+
     private func resetItemAICalls(_ item: SharedItem) {
         guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[idx].aiCallsCount = 0
@@ -2874,7 +3097,7 @@ struct ContentView: View {
         geocodingIDs.insert(item.id)
         let id = item.id
         let loc = CLLocation(latitude: lat, longitude: lon)
-        Task.detached(priority: .utility) {
+        let task = Task.detached(priority: .utility) {
             let geocoder = CLGeocoder()
             let placemarks = try? await geocoder.reverseGeocodeLocation(loc)
             let name: String = {
@@ -2892,10 +3115,15 @@ struct ContentView: View {
                 return ""
             }()
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 geocodingIDs.remove(id)
+                geocodeTasks.removeValue(forKey: id)
+                updateBackgroundTasksCount()
                 updateItemPlaceName(id: id, to: name)
             }
         }
+        geocodeTasks[id] = task
+        updateBackgroundTasksCount()
     }
 
     private func updateItemPlaceName(id: String, to place: String) {
@@ -2957,10 +3185,13 @@ struct ContentView: View {
         let id = item.id
         let urlString = item.url
         let shareTimestamp = item.timestamp
-        Task.detached(priority: .utility) {
+        let task = Task.detached(priority: .utility) {
             let date = await Self.fetchLastModified(urlString: urlString)
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 fetchingDateIDs.remove(id)
+                dateFetchTasks.removeValue(forKey: id)
+                updateBackgroundTasksCount()
                 if let date {
                     updateItemModifiedAt(id: id, to: date)
                 } else {
@@ -2972,6 +3203,8 @@ struct ContentView: View {
                 }
             }
         }
+        dateFetchTasks[id] = task
+        updateBackgroundTasksCount()
     }
 
     private func updateItemModifiedAt(id: String, to date: Date) {
@@ -3056,6 +3289,7 @@ struct ContentView: View {
     /// spinner de pull-to-refresh reste affiché jusqu'à la fin.
     @MainActor
     private func pullToRefreshDates() async {
+        autoTriggersPaused = false
         showRefreshAnnouncement()
         // Aussi : on retente la génération des aperçus pour lesquels
         // une tentative précédente a échoué (previewPath == ""). On
@@ -3071,18 +3305,24 @@ struct ContentView: View {
             await refreshAllURLDates()
         }
         refreshTask = task
+        updateBackgroundTasksCount()
         await task.value
         refreshTask = nil
+        updateBackgroundTasksCount()
     }
 
     private func retryFailedPreviews() {
-        // Idem refresh des dates URL : on travaille sur une copie locale
-        // pour ne déclencher qu'UNE seule réassignation de @State, donc
-        // une seule re-évaluation du body de ContentView (sinon les
-        // Menus de la toolbar clignotent).
+        // On ne retente QUE les vignettes en échec (`previewPath == ""`)
+        // des items actuellement affichés dans la liste principale.
+        // Idem refresh des dates URL : on travaille sur une copie
+        // locale pour ne déclencher qu'UNE seule réassignation de
+        // @State (sinon les Menus de la toolbar clignotent).
+        let visibleIDs = Set(currentItems.map(\.id))
         var newItems = items
         var changed = false
-        for idx in newItems.indices where newItems[idx].previewPath == "" {
+        for idx in newItems.indices
+            where newItems[idx].previewPath == ""
+                && visibleIDs.contains(newItems[idx].id) {
             newItems[idx].previewPath = nil
             changed = true
         }
@@ -3093,29 +3333,90 @@ struct ContentView: View {
         triggerPendingPreviews()
     }
 
+    /// Vrai dès qu'au moins une tâche asynchrone est en cours pour
+    /// l'app : refresh batch des dates, génération d'aperçu, fetch
+    /// d'une date URL individuelle, description IA / transcription
+    /// audio, ou reverse-geocoding. Sert au menu « … » pour basculer
+    /// l'entrée en mode « Stop refreshing » même quand le travail a
+    /// été lancé via un menu contextuel d'une seule ligne.
+    private var hasAnyActiveRefresh: Bool {
+        refreshTask != nil
+            || !previewTasks.isEmpty
+            || !aiTasks.isEmpty
+            || !dateFetchTasks.isEmpty
+            || !geocodeTasks.isEmpty
+    }
+
     private func toggleRefreshAllDates() {
-        if let task = refreshTask {
-            task.cancel()
+        if hasAnyActiveRefresh {
+            refreshTask?.cancel()
             refreshTask = nil
-            // Nettoyer les marqueurs fetching restants
-            fetchingDateIDs.removeAll()
+            // Stop refreshing → annule TOUTES les tâches en vol, peu
+            // importe leur nature (preview, IA / transcription, fetch
+            // de date, geocoding). La roue dentée et tous les
+            // « Fetching… » disparaissent immédiatement de l'UI.
+            cancelAllRunningTasks()
         } else {
-            // Comportement strictement identique au pull-to-refresh :
-            // overlay d'annonce + retry des aperçus en échec + refresh
-            // des dates URL.
+            // Reprend les auto-triggers (peut avoir été mis en pause
+            // par un précédent Stop refreshing) puis comportement
+            // strictement identique au pull-to-refresh : overlay
+            // d'annonce + retry des aperçus en échec + refresh des
+            // dates URL.
+            autoTriggersPaused = false
             showRefreshAnnouncement()
             retryFailedPreviews()
             refreshTask = Task { @MainActor in
                 await refreshAllURLDates()
                 refreshTask = nil
+                updateBackgroundTasksCount()
             }
+            updateBackgroundTasksCount()
         }
+    }
+
+    /// Annule toutes les tâches asynchrones en cours et nettoie l'UI :
+    /// génération d'aperçus, description IA, transcription audio,
+    /// fetch Last-Modified, reverse-geocoding.
+    /// Recalcule le nombre total de tâches en vol et le publie via le
+    /// singleton observé par `StatsPanelView`. À appeler après chaque
+    /// modification d'un des dictionnaires de Tasks ou de `refreshTask`.
+    private func updateBackgroundTasksCount() {
+        let total = previewTasks.count
+                  + aiTasks.count
+                  + dateFetchTasks.count
+                  + geocodeTasks.count
+                  + (refreshTask != nil ? 1 : 0)
+        if BackgroundTasksMonitor.shared.activeCount != total {
+            BackgroundTasksMonitor.shared.activeCount = total
+        }
+    }
+
+    private func cancelAllRunningTasks() {
+        for (_, task) in previewTasks   { task.cancel() }
+        for (_, task) in aiTasks        { task.cancel() }
+        for (_, task) in dateFetchTasks { task.cancel() }
+        for (_, task) in geocodeTasks   { task.cancel() }
+        previewTasks.removeAll()
+        aiTasks.removeAll()
+        dateFetchTasks.removeAll()
+        geocodeTasks.removeAll()
+        generatingPreviewIDs.removeAll()
+        describingIDs.removeAll()
+        fetchingDateIDs.removeAll()
+        geocodingIDs.removeAll()
+        // Pause les auto-triggers : sans cette pause, le timer 100 ms
+        // verrait `previewPath == nil` etc. et relancerait aussitôt
+        // une nouvelle génération → roue dentée éternelle.
+        autoTriggersPaused = true
+        updateBackgroundTasksCount()
     }
 
     @MainActor
     private func refreshAllURLDates() async {
-        // Snapshot des URLs au moment du lancement.
-        let urlItems = items.filter { $0.effectiveKind == "url" }
+        // Snapshot des URLs visibles dans la liste principale au moment
+        // du lancement — on ne traite QUE ce qui est affiché (filtres
+        // / smart folder / dossier / recherche pris en compte).
+        let urlItems = currentItems.filter { $0.effectiveKind == "url" }
         let allIDs = Set(urlItems.map(\.id))
 
         // Une SEULE mutation @State pour marquer toutes les URLs comme
@@ -3896,15 +4197,23 @@ enum PreviewGenerator {
         guard let url = URL(string: urlString),
               url.scheme == "http" || url.scheme == "https" else { return nil }
 
+        // Skip immédiat si la Task a été annulée AVANT l'acquisition de
+        // la sémaphore (cas typique : utilisateur a fait Stop refreshing
+        // pendant que l'item était queueé).
+        if Task.isCancelled { return nil }
+
         // SÉRIALISATION : un seul rendu WKWebView à la fois pour toute
-        // l'app. Sans cette sérialisation, plusieurs `Task.detached`
-        // lancées en parallèle par `triggerPendingPreviews` créaient des
-        // WKWebView en concurrence et les ajoutaient ensemble à la
-        // keyWindow → WebKit/UIKit crashait dans `objc_setAssociatedObject`
-        // pendant les `commitLayerTree` simultanés (EXC_BAD_ACCESS dans
-        // `_addSubview:positioned:relativeTo:`).
+        // l'app.
         await WebPageRenderSemaphore.shared.acquire()
         defer { WebPageRenderSemaphore.shared.release() }
+
+        // Skip après acquisition aussi : si la Task a été annulée
+        // pendant qu'elle attendait son tour, on libère la sémaphore
+        // sans faire de travail WebKit. Sans cette vérif, toutes les
+        // tâches en file (annulées) auraient quand même drainé une à
+        // une avec leur cycle complet de capture → blocage long pour
+        // les nouvelles régénérations.
+        if Task.isCancelled { return nil }
 
         // Rendu en haute résolution puis réduit en aspect-fit avec
         // interpolation .high → évite l'effet d'escalier visible quand on
@@ -3931,6 +4240,14 @@ enum PreviewGenerator {
 
         let loaded = await delegate.waitForFinish(timeout: 12)
 
+        // Re-vérifie : annulée pendant le load → on saute la capture.
+        if Task.isCancelled {
+            webView.navigationDelegate = nil
+            webView.stopLoading()
+            webView.removeFromSuperview()
+            return nil
+        }
+
         var bigSnapshot: UIImage? = nil
         if loaded {
             // Délai supplémentaire pour laisser les images / fonts /
@@ -3946,11 +4263,9 @@ enum PreviewGenerator {
             // le sémaphore ne s'exécute pas, et toutes les
             // regénérations d'URL suivantes restent bloquées en file.
             // On wrap dans un timeout de 10 s.
-            bigSnapshot = await withSnapshotTimeout(seconds: 10) {
-                await withCheckedContinuation { cont in
-                    webView.takeSnapshot(with: snap) { image, _ in
-                        cont.resume(returning: image)
-                    }
+            bigSnapshot = await snapshotWithTimeout(seconds: 10) { complete in
+                webView.takeSnapshot(with: snap) { image, _ in
+                    complete(image)
                 }
             }
         }
@@ -3970,23 +4285,42 @@ enum PreviewGenerator {
         return scaleAspectFit(image: big)
     }
 
-    /// Wraps an async UIImage-returning operation with a timeout. If
-    /// the operation doesn't complete within `seconds`, returns nil so
-    /// the caller can clean up and not stay suspended forever.
+    /// Lance une opération à callback (`takeSnapshot` etc.) avec un
+    /// timeout. La première résolution gagne (callback ou minuteur),
+    /// l'autre est ignorée silencieusement. Crucial : on N'ATTEND PAS
+    /// la callback si elle ne vient pas — sinon, comme `takeSnapshot`
+    /// peut ne jamais rappeler quand le WebContent process meurt, on
+    /// se retrouvait bloqué pour toujours et la roue restait à
+    /// l'écran.
     @MainActor
-    static func withSnapshotTimeout(seconds: TimeInterval,
-                                    operation: @escaping () async -> UIImage?) async -> UIImage? {
-        await withTaskGroup(of: UIImage?.self) { group in
-            group.addTask { await operation() }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                return nil
+    static func snapshotWithTimeout(
+        seconds: TimeInterval,
+        operation: (@escaping (UIImage?) -> Void) -> Void
+    ) async -> UIImage? {
+        await withCheckedContinuation { (cont: CheckedContinuation<UIImage?, Never>) in
+            let state = SnapshotTimeoutState()
+            let resume: (UIImage?) -> Void = { img in
+                state.lock.lock()
+                let already = state.resumed
+                state.resumed = true
+                state.lock.unlock()
+                if !already {
+                    cont.resume(returning: img)
+                }
             }
-            // Premier résultat = soit l'image, soit nil (timeout).
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+            operation(resume)
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                resume(nil)
+            }
         }
+    }
+
+    /// Petite classe support pour synchroniser le « premier appelant
+    /// gagne » sur la callback de `snapshotWithTimeout` (NSLock + Bool).
+    final class SnapshotTimeoutState {
+        let lock = NSLock()
+        var resumed: Bool = false
     }
 
     /// Sémaphore async qui sérialise les rendus WKWebView. Un seul
@@ -4403,12 +4737,24 @@ final class WidgetReloadCoordinator {
 /// container. Comme c'est une struct SwiftUI séparée de ContentView,
 /// les mutations de ses @State n'invalident QUE ce sous-arbre — la
 /// toolbar de ContentView (donc ses Menus) reste stable.
+/// Singleton ObservableObject mis à jour par `ContentView` à chaque
+/// modification du nombre de tâches en vol. Observé UNIQUEMENT par
+/// `StatsPanelView` → ses changements ne re-rendent pas la toolbar de
+/// `ContentView` (donc pas de clignotement des Menus).
+@MainActor
+final class BackgroundTasksMonitor: ObservableObject {
+    static let shared = BackgroundTasksMonitor()
+    @Published var activeCount: Int = 0
+    private init() {}
+}
+
 struct StatsPanelView: View {
     let appGroup: String
 
     @State private var appDataBytes: Int64 = 0
     @State private var appDataComputing: Bool = false
     @State private var statsTick: Int = 0
+    @ObservedObject private var tasks = BackgroundTasksMonitor.shared
 
     var body: some View {
         // `_ = statsTick` lit la valeur pour que la vue se rafraîchisse
@@ -4417,6 +4763,31 @@ struct StatsPanelView: View {
         let _ = statsTick
 
         VStack(alignment: .leading, spacing: 10) {
+            // Apparition/disparition smooth pilotée par
+            // `.animation(value: hasTasks)` posée plus bas sur le
+            // VStack racine. La `.transition` sur le HStack définit
+            // ce que l'animation interpole (fade + glissement vers le
+            // haut).
+            if tasks.activeCount > 0 {
+                HStack(spacing: 8) {
+                    Image(systemName: "gearshape.2")
+                        .foregroundColor(.purple)
+                    Text("Background tasks")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    Spacer()
+                    Text("\(tasks.activeCount)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                        .contentTransition(.numericText(value: Double(tasks.activeCount)))
+                }
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .move(edge: .top)),
+                    removal: .opacity.combined(with: .move(edge: .top))
+                ))
+            }
+
             HStack(spacing: 8) {
                 Image(systemName: "internaldrive")
                     .foregroundColor(.blue)
@@ -4495,6 +4866,11 @@ struct StatsPanelView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .animation(.easeInOut(duration: 0.5), value: providersSignature)
         .animation(.easeInOut(duration: 0.5), value: appDataBytes)
+        // Pilote l'apparition/disparition smooth de la ligne
+        // « Background tasks » : c'est la transition booléenne
+        // (présent ↔ absent) qui doit être animée, pas le compteur
+        // numérique (lui est animé par contentTransition).
+        .animation(.easeInOut(duration: 0.5), value: tasks.activeCount > 0)
         .onAppear { recomputeAppDataBytes() }
         .onReceive(Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()) { _ in
             recomputeAppDataBytes()
