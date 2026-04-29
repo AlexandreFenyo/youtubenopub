@@ -1070,9 +1070,10 @@ class ShareViewController: UIViewController {
         // Ajouter un label pour l'app source si disponible
         let sourceLabel = UILabel()
         if let sourceApp = sourceApp {
-            sourceLabel.text = "From: \(sourceApp)"
+            let fmt = NSLocalizedString("From: %@", comment: "")
+            sourceLabel.text = String(format: fmt, sourceApp)
         } else {
-            sourceLabel.text = "Source: Unknown"
+            sourceLabel.text = NSLocalizedString("Source: Unknown", comment: "")
         }
         sourceLabel.font = .systemFont(ofSize: 11, weight: .regular)
         sourceLabel.textColor = .secondaryLabel

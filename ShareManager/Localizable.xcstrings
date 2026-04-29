@@ -29181,6 +29181,604 @@
           }
         }
       }
+    },
+    "AI text generation failed — use the context menu to retry.": {
+      "extractionState": "manual",
+      "localizations": {
+        "sk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la génération du texte IA — utilisez le menu contextuel pour retenter."
+          }
+        },
+        "gu": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "sl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "pa": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "kn": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "mr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "ms": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "te": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "fr-CA": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "es-MX": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "en-AU": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "or": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "en-CA": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        },
+        "ml": {
+          "stringUnit": {
+            "state": "new",
+            "value": "AI text generation failed — use the context menu to retry."
+          }
+        }
+      }
+    },
+    "With AI or OCR": {
+      "extractionState": "manual",
+      "localizations": {
+        "bn": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "pa": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "or": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "es-MX": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "fr-CA": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "sl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "ms": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "ml": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "en-CA": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "en-AU": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "gu": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avec IA ou OCR"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "kn": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "mr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "te": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With AI or OCR"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "With AI or OCR"
+          }
+        }
+      }
     }
   },
   "version": "1.1"

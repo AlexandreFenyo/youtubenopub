@@ -1,6 +1,7 @@
 import SwiftUI
 import WebKit
 import QuickLook
+import QuickLookThumbnailing
 import CoreLocation
 import Vision
 import AVFoundation
@@ -61,13 +62,38 @@ struct SharedItem: Codable, Identifiable, Hashable {
     var ocrDone: Bool?
     /// Nom de fichier (à l'intérieur du sous-dossier `previews/` du
     /// container App Group) de l'aperçu PNG 320x200. Nil tant que la
-    /// génération n'a pas eu lieu, "" si l'on a essayé sans succès.
+    /// génération n'a pas eu lieu, "" si l'on a essayé sans succès
+    /// OU si l'utilisateur a effacé la vignette via « Clear previews ».
+    /// Dans les deux cas, le pull-to-refresh / 1B retentera la
+    /// génération.
     var previewPath: String?
     /// Nombre d'appels IA cloud (OpenAI / Anthropic) déjà effectués pour
     /// cet item. Plafonné à 5 ; au-delà, l'app n'invoque plus l'IA pour
     /// cet item — l'utilisateur peut le réinitialiser via le menu
     /// contextuel de la ligne. Persistant dans le JSON de sauvegarde.
     var aiCallsCount: Int?
+    /// Vrai si la traduction des labels Vision (Apple Translation) a
+    /// été tentée pour cet item — succès ou échec. Bloque les
+    /// re-soumissions auto. Reset à `nil` quand on regénère le titre IA.
+    var translationDone: Bool?
+    /// Vrai si la dernière tentative d'OCR a échoué (Vision a renvoyé
+    /// nil, image illisible, Task cancellée). Sert à bloquer les
+    /// retries auto via `triggerPendingOCR` tout en permettant aux
+    /// refresh globaux (1A/1B) de remettre à zéro pour retenter
+    /// l'OCR sans coût.
+    var ocrFailed: Bool?
+    /// Vrai si la dernière tentative de fetch du <title> HTML d'une
+    /// URL a échoué (HTTP 4xx/5xx, parsing fail, page sans balise
+    /// title, timeout). Bloque les re-fetches auto à chaque
+    /// `.onAppear` ; les refresh globaux 1A/1B remettent à nil pour
+    /// retenter.
+    var titleFetchFailed: Bool?
+    /// Vrai si la dernière tentative IA (description photo/video ou
+    /// transcription audio) a échoué. Distinct de `aiDescribed`
+    /// (qui veut juste dire « tentée, succès ou échec »). Sert à
+    /// afficher un avertissement dans la ligne et à permettre à
+    /// l'utilisateur de retenter via le menu contextuel.
+    var aiFailed: Bool?
 
     var effectiveKind: String {
         if let k = kind { return k }
@@ -265,6 +291,10 @@ struct ContentView: View {
     @State private var dateFetchTasks: [String: Task<Void, Never>] = [:]
     /// Handles vers les Tasks de reverse-geocoding photos.
     @State private var geocodeTasks: [String: Task<Void, Never>] = [:]
+    /// Handles vers les Tasks de fetch du <title> HTML d'une URL.
+    @State private var titleFetchTasks: [String: Task<Void, Never>] = [:]
+    /// Handles vers les Tasks d'OCR Vision (post-IA).
+    @State private var ocrTasks: [String: Task<Void, Never>] = [:]
     /// Met en pause les auto-triggers (génération d'aperçus, IA, OCR,
     /// transcription audio) après un « Stop refreshing » : sans cette
     /// pause, le timer 100 ms relancerait immédiatement une nouvelle
@@ -293,6 +323,8 @@ struct ContentView: View {
     /// qui empêche `.onTapGesture` d'ouvrir une URL après une sortie
     /// d'edit mode laissant des items cochés.
     @Environment(\.editMode) private var editMode
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    @Environment(\.verticalSizeClass) private var vSizeClass
     @State private var editingNoteItem: SharedItem? = nil
     @State private var smartFolder: SmartFolder? = nil
     @AppStorage("smartFoldersExpanded") private var smartFoldersExpanded: Bool = true
@@ -312,7 +344,7 @@ struct ContentView: View {
     }
 
     enum SmartFolder: String, CaseIterable, Identifiable {
-        case all, recent7days, unreadURLs, withLocation, photosOnly, videosOnly
+        case all, recent7days, unreadURLs, withLocation, withAIOrOCR
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -320,8 +352,7 @@ struct ContentView: View {
             case .recent7days:  return String(localized: "Recent (7 days)")
             case .unreadURLs:   return String(localized: "Unread")
             case .withLocation: return String(localized: "With location")
-            case .photosOnly:   return String(localized: "Photos only")
-            case .videosOnly:   return String(localized: "Videos only")
+            case .withAIOrOCR:  return String(localized: "With AI or OCR")
             }
         }
         var systemImage: String {
@@ -330,8 +361,7 @@ struct ContentView: View {
             case .recent7days:  return "clock.arrow.circlepath"
             case .unreadURLs:   return "circle.fill"
             case .withLocation: return "mappin.and.ellipse"
-            case .photosOnly:   return "photo"
-            case .videosOnly:   return "video"
+            case .withAIOrOCR:  return "sparkles"
             }
         }
     }
@@ -406,10 +436,12 @@ struct ContentView: View {
                 result = items.filter { isUnread($0) }
             case .withLocation:
                 result = items.filter { $0.latitude != nil && $0.longitude != nil }
-            case .photosOnly:
-                result = items.filter { $0.effectiveKind == "photo" }
-            case .videosOnly:
-                result = items.filter { $0.effectiveKind == "video" }
+            case .withAIOrOCR:
+                result = items.filter {
+                    let k = $0.effectiveKind
+                    guard k == "photo" || k == "video" else { return false }
+                    return $0.aiDescribed == true || $0.ocrDone == true
+                }
             }
         } else {
             result = items.filter { $0.folder == currentFolder }
@@ -481,7 +513,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showDebugLogs) { debugLogsSheet }
         .fullScreenCover(isPresented: $showPreviewsSheet) {
-            PreviewsSheet(items: currentItems.filter { $0.effectiveKind != "text" }) { selected in
+            PreviewsSheet(items: currentItems) { selected in
                 showPreviewsSheet = false
                 // Petit délai pour que le fullScreenCover ait fini de se
                 // refermer avant de présenter la prochaine sheet (Safari /
@@ -638,10 +670,28 @@ struct ContentView: View {
     @ViewBuilder
     private var labelTranslatorHost: some View {
         if #available(iOS 18.0, *) {
-            LabelTranslator(pending: $pendingLabelTranslations) { id, translated in
-                updateItemTitle(id: id, to: translated)
-            }
+            LabelTranslator(pending: $pendingLabelTranslations,
+                            onTranslated: { id, translated in
+                                updateItemTitle(id: id, to: translated)
+                                markTranslationDone(id: id)
+                                updateBackgroundTasksCount()
+                            },
+                            onFailed: { id in
+                                // Échec de la traduction : on marque
+                                // quand même `translationDone = true`
+                                // pour ne pas retry indéfiniment au
+                                // prochain refresh. L'utilisateur peut
+                                // forcer via 1J / 1D.
+                                markTranslationDone(id: id)
+                                updateBackgroundTasksCount()
+                            })
         }
+    }
+
+    private func markTranslationDone(id: String) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        items[idx].translationDone = true
+        saveItems()
     }
 
     // MARK: - AI counters & app data size
@@ -806,8 +856,12 @@ struct ContentView: View {
         case .recent7days:  let c = Date().timeIntervalSince1970 - 7 * 86400; return items.filter { $0.timestamp >= c }.count
         case .unreadURLs:   return items.filter { isUnread($0) }.count
         case .withLocation: return items.filter { $0.latitude != nil && $0.longitude != nil }.count
-        case .photosOnly:   return items.filter { $0.effectiveKind == "photo" }.count
-        case .videosOnly:   return items.filter { $0.effectiveKind == "video" }.count
+        case .withAIOrOCR:
+            return items.filter {
+                let k = $0.effectiveKind
+                guard k == "photo" || k == "video" else { return false }
+                return $0.aiDescribed == true || $0.ocrDone == true
+            }.count
         }
     }
 
@@ -835,7 +889,15 @@ struct ContentView: View {
                                     .tag(item.id)
                             }
                             .onDelete(perform: deleteItems)
-                            .onMove(perform: moveItems)
+                            // Le drag-to-move n'a de sens que dans le
+                            // tri « ordre manuel » (= insertion) :
+                            // dans tous les autres tris (date, titre,
+                            // source), réordonner ne donne aucun
+                            // effet visible puisque le tri se réapplique
+                            // immédiatement. Disponible aussi bien
+                            // dans les vues intelligentes que dans les
+                            // dossiers, tant que le tri est manuel.
+                            .onMove(perform: sortOrder == .insertion ? moveItems : nil)
                         }
                         .animation(.easeInOut(duration: 0.5), value: typeFilter)
                         .animation(.easeInOut(duration: 0.5), value: currentItems.count)
@@ -895,12 +957,22 @@ struct ContentView: View {
                 .disabled(currentItems.isEmpty)
             }
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showPreviewsSheet = true
-                } label: {
-                    Image(systemName: "rectangle.grid.2x2")
+                // Sur iPhone portrait, on retire ce bouton de la toolbar
+                // pour libérer de la place : l'action est dupliquée dans
+                // le menu « … ». Sur iPad ou iPhone paysage il reste
+                // visible. Pour permettre une déclaration conditionnelle
+                // sans casser la structure du toolbar, on remplace le
+                // bouton par un EmptyView quand on est en iPhone portrait.
+                if isIPhonePortrait {
+                    EmptyView()
+                } else {
+                    Button {
+                        showPreviewsSheet = true
+                    } label: {
+                        Image(systemName: "rectangle.grid.2x2")
+                    }
+                    .disabled(items.isEmpty)
                 }
-                .disabled(items.isEmpty)
             }
             // Bottom bar pour les opérations en lot quand selection non vide
             ToolbarItemGroup(placement: .bottomBar) {
@@ -1140,8 +1212,26 @@ struct ContentView: View {
         }
     }
 
+    /// iPhone en mode portrait : la toolbar n'a plus de place pour le
+    /// bouton « gallery » indépendant, donc on déplace l'action dans le
+    /// menu « … ». Sur iPad ou iPhone paysage, on garde le bouton
+    /// dédié dans la toolbar.
+    private var isIPhonePortrait: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone
+            && vSizeClass == .regular
+    }
+
     private var settingsMenu: some View {
         Menu {
+            if isIPhonePortrait {
+                Button {
+                    showPreviewsSheet = true
+                } label: {
+                    Label("Preview gallery", systemImage: "rectangle.grid.2x2")
+                }
+                .disabled(items.isEmpty)
+                Divider()
+            }
             if hasURLItems {
                 Button {
                     toggleRefreshAllDates()
@@ -1215,11 +1305,8 @@ struct ContentView: View {
     }
 
     /// Vrai si l'item a une vignette générée et exploitable
-    /// (`previewPath` non nil ET non vide). Les items de type "text"
-    /// n'ont jamais de vignette : on les exclut explicitement, même si
-    /// d'anciens partages en ont une stockée sur disque.
+    /// (`previewPath` non nil ET non vide).
     private func hasUsablePreview(_ item: SharedItem) -> Bool {
-        guard item.effectiveKind != "text" else { return false }
         if let p = item.previewPath, !p.isEmpty { return true }
         return false
     }
@@ -1382,12 +1469,28 @@ struct ContentView: View {
                 }
             }
 
-            if let sourceApp = item.sourceApp {
-                HStack(spacing: 4) {
-                    Image(systemName: "app.badge")
-                        .font(.caption2)
-                    Text("From: \(sourceApp)")
-                        .font(.caption2)
+            // Quand l'utilisateur a sélectionné une vue intelligente
+            // (smartFolder != nil), les items affichés peuvent venir
+            // de n'importe quel dossier — on indique donc le dossier
+            // d'appartenance à droite du « From: ... ».
+            if item.sourceApp != nil || smartFolder != nil {
+                HStack(spacing: 8) {
+                    if let sourceApp = item.sourceApp {
+                        HStack(spacing: 4) {
+                            Image(systemName: "app.badge")
+                                .font(.caption2)
+                            Text("From: \(sourceApp)")
+                                .font(.caption2)
+                        }
+                    }
+                    if smartFolder != nil {
+                        HStack(spacing: 4) {
+                            Image(systemName: item.folder == StoreKeys.defaultFolder ? "tray" : "folder")
+                                .font(.caption2)
+                            Text(displayName(forFolder: item.folder))
+                                .font(.caption2)
+                        }
+                    }
                 }
                 .foregroundColor(.blue)
                 .padding(.top, 2)
@@ -1401,6 +1504,19 @@ struct ContentView: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.caption2)
                     Text("Limit of \(Self.aiCallsLimit) AI calls reached for this item — no further AI invocations.")
+                        .font(.caption2)
+                        .lineLimit(2)
+                }
+                .foregroundColor(.orange)
+                .padding(.top, 2)
+            } else if item.aiFailed == true {
+                // Indicateur d'échec IA distinct du cas « cap atteint ».
+                // L'utilisateur peut retenter via le menu contextuel
+                // « Regenerate AI text ».
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.caption2)
+                    Text("AI text generation failed — use the context menu to retry.")
                         .font(.caption2)
                         .lineLimit(2)
                 }
@@ -1855,20 +1971,26 @@ struct ContentView: View {
 
     // MARK: - Item CRUD
 
-    /// Réordonne les items du folder courant. Les items des autres folders
-    /// gardent leur position relative dans le tableau global.
+    /// Réordonne les items actuellement affichés dans la liste
+    /// principale (`currentItems`). Fonctionne aussi bien dans un
+    /// dossier réel que dans une vue intelligente : on identifie les
+    /// items visibles par leur id, et on remplace leurs positions
+    /// dans le tableau global `items` selon le nouvel ordre. Les
+    /// items hors `currentItems` (autres dossiers / hors filtre)
+    /// gardent leur position relative.
     private func moveItems(from source: IndexSet, to destination: Int) {
-        // 1. Extraire l'ordre actuel des items du folder courant.
-        var folderItems = currentItems
-        folderItems.move(fromOffsets: source, toOffset: destination)
+        // 1. Calcule le nouvel ordre des items visibles.
+        var visible = currentItems
+        visible.move(fromOffsets: source, toOffset: destination)
+        let visibleIDs = Set(visible.map(\.id))
 
-        // 2. Reconstruire `items` : aux positions des items du folder courant,
-        //    injecter la nouvelle séquence ; ailleurs, conserver tel quel.
+        // 2. Reconstruit `items` : aux positions des items visibles,
+        //    injecte la nouvelle séquence ; ailleurs, conserve tel quel.
         var newItems: [SharedItem] = []
         newItems.reserveCapacity(items.count)
-        var iter = folderItems.makeIterator()
+        var iter = visible.makeIterator()
         for existing in items {
-            if existing.folder == currentFolder {
+            if visibleIDs.contains(existing.id) {
                 if let next = iter.next() {
                     newItems.append(next)
                 }
@@ -1958,7 +2080,10 @@ struct ContentView: View {
         guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[idx].title = nil
         items[idx].aiDescribed = nil
+        items[idx].aiFailed = nil
         items[idx].ocrDone = nil
+        items[idx].ocrFailed = nil
+        items[idx].translationDone = nil
         saveItems()
         let kind = items[idx].effectiveKind
         guard !describingIDs.contains(items[idx].id) else { return }
@@ -2031,7 +2156,10 @@ struct ContentView: View {
         for idx in newItems.indices where ids.contains(newItems[idx].id) {
             newItems[idx].title = nil
             newItems[idx].aiDescribed = nil
+            newItems[idx].aiFailed = nil
             newItems[idx].ocrDone = nil
+            newItems[idx].ocrFailed = nil
+            newItems[idx].translationDone = nil
         }
         items = newItems
         saveItems()
@@ -2072,7 +2200,15 @@ struct ContentView: View {
         for idx in newItems.indices where ids.contains(newItems[idx].id) {
             newItems[idx].title = nil
             newItems[idx].aiDescribed = true
+            // Volontairement « pas d'échec » puisque l'utilisateur a
+            // explicitement choisi de ne pas avoir de description IA.
+            newItems[idx].aiFailed = false
             newItems[idx].ocrDone = true
+            // Pas d'OCR à retenter puisque le titre IA est désactivé.
+            newItems[idx].ocrFailed = false
+            // Bloque aussi toute traduction auto puisque le titre est
+            // maintenant nil — rien à traduire.
+            newItems[idx].translationDone = true
         }
         items = newItems
         saveItems()
@@ -2189,6 +2325,13 @@ struct ContentView: View {
         guard !autoTriggersPaused else { return }
         for item in items where (item.effectiveKind == "photo" || item.effectiveKind == "video")
                                 && item.ocrDone != true
+                                // Bloque les retries auto en cas
+                                // d'échec : seuls 1A/1B (via
+                                // `retryFailedOCRsForCurrent`) ou les
+                                // actions IA (clear/regenerate)
+                                // remettent `ocrFailed` à nil.
+                                && item.ocrFailed != true
+                                && !ocrTasks.keys.contains(item.id)
                                 // On laisse l'IA finir avant l'OCR pour bien
                                 // appender le texte OCR derrière la description.
                                 && (item.aiDescribed == true || !UserDefaults.standard.bool(forKey: "describeImagesEnabled")) {
@@ -2197,30 +2340,93 @@ struct ContentView: View {
     }
 
     private func startOCR(for item: SharedItem) {
-        // Marqueur immédiat pour éviter les doubles déclenchements.
-        guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
-        items[idx].ocrDone = true
+        guard items.firstIndex(where: { $0.id == item.id }) != nil else { return }
         let id = item.id
         let urlString = item.url
-        Task.detached(priority: .utility) {
-            let text = await Self.recognizeText(in: urlString)
-            await MainActor.run {
-                appendOCRResult(id: id, ocrText: text)
+        let task = Task.detached(priority: .utility) {
+            // Timeout 10 s : Vision est rapide mais une image très
+            // grande / corrompue pourrait théoriquement bloquer.
+            let text = await PreviewGenerator.withTimeout(seconds: 10) {
+                await Self.recognizeText(in: urlString)
             }
+            await MainActor.run {
+                guard !Task.isCancelled else { return }
+                ocrTasks.removeValue(forKey: id)
+                updateBackgroundTasksCount()
+                applyOCRResult(id: id, ocrText: text)
+            }
+        }
+        ocrTasks[id] = task
+        updateBackgroundTasksCount()
+    }
+
+    /// Applique le résultat d'un OCR : succès → suffixe au titre +
+    /// `ocrDone = true`. Échec (Vision a renvoyé nil ou texte vide)
+    /// → `ocrDone = true` aussi (pour bloquer triggerPendingOCR) ET
+    /// `ocrFailed = true` (pour permettre aux refresh globaux de
+    /// retenter ultérieurement sans toucher à la description IA).
+    private func applyOCRResult(id: String, ocrText: String?) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        if let text = ocrText, !text.isEmpty {
+            let collapsed = text
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "  ", with: " ")
+                .trimmingCharacters(in: .whitespaces)
+            if !collapsed.isEmpty {
+                let prefix = items[idx].title ?? URL(string: items[idx].url)?.lastPathComponent ?? items[idx].url
+                items[idx].title = "\(prefix) — \(collapsed)"
+                items[idx].ocrDone = true
+                items[idx].ocrFailed = false
+                saveItems()
+                return
+            }
+        }
+        // Cas d'échec / texte vide
+        items[idx].ocrDone = true
+        items[idx].ocrFailed = true
+        saveItems()
+    }
+
+    /// Helper appelé par 1A et 1B pour retenter l'OCR sur les items
+    /// visibles dont la dernière tentative a échoué. Remet
+    /// `ocrDone = nil` ET `ocrFailed = nil` → `triggerPendingOCR`
+    /// relancera Vision au prochain tick. Ne touche PAS à
+    /// `aiDescribed` ni au `title` IA → l'OCR retentera de suffixer
+    /// son texte sans relancer la description IA.
+    /// Lance la transcription pour chaque audio visible dont
+    /// `aiDescribed` est resté à nil (= cancellation par 1C avant
+    /// complétion). Sert à boucher le trou : le cycle « audio
+    /// cancellé » n'est sinon repris qu'en passant par 1D / 1J. Ne
+    /// crée pas de drapeau supplémentaire car les échecs définitifs
+    /// (auth Speech refusée, audio illisible) posent déjà
+    /// `aiDescribed = true` et ne sont donc pas retentés par ce
+    /// helper.
+    private func retryPendingAudioTranscriptionsForCurrent() {
+        guard UserDefaults.standard.bool(forKey: "describeImagesEnabled") else { return }
+        for it in currentItems
+            where it.effectiveKind == "audio"
+                && it.aiDescribed != true
+                && !describingIDs.contains(it.id) {
+            startAudioTranscription(for: it)
         }
     }
 
-    private func appendOCRResult(id: String, ocrText: String?) {
-        guard let idx = items.firstIndex(where: { $0.id == id }),
-              let text = ocrText, !text.isEmpty else { return }
-        let collapsed = text
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "  ", with: " ")
-            .trimmingCharacters(in: .whitespaces)
-        guard !collapsed.isEmpty else { return }
-        let prefix = items[idx].title ?? URL(string: items[idx].url)?.lastPathComponent ?? items[idx].url
-        items[idx].title = "\(prefix) — \(collapsed)"
-        saveItems()
+    private func retryFailedOCRsForCurrent() {
+        var newItems = items
+        var changed = false
+        let visibleIDs = Set(currentItems.map(\.id))
+        for idx in newItems.indices
+            where (newItems[idx].effectiveKind == "photo" || newItems[idx].effectiveKind == "video")
+                && newItems[idx].ocrFailed == true
+                && visibleIDs.contains(newItems[idx].id) {
+            newItems[idx].ocrDone = nil
+            newItems[idx].ocrFailed = nil
+            changed = true
+        }
+        if changed {
+            items = newItems
+            saveItems()
+        }
     }
 
     // MARK: - Previews (320x200)
@@ -2231,7 +2437,6 @@ struct ContentView: View {
     private func triggerPendingPreviews() {
         guard !autoTriggersPaused else { return }
         for item in items where item.previewPath == nil
-                                && item.effectiveKind != "text"
                                 && !generatingPreviewIDs.contains(item.id) {
             startPreviewGeneration(for: item)
         }
@@ -2290,7 +2495,13 @@ struct ContentView: View {
         let id = item.id
         let urlString = item.url
         let task = Task.detached(priority: .utility) {
-            let text = await Self.transcribeFirstSeconds(audioURLString: urlString, seconds: 15)
+            // Timeout 30 s : le clip audio fait au plus 15 s, plus
+            // l'export AVAssetExportSession + l'autorisation SFSpeech
+            // + la reconnaissance elle-même → 30 s couvre largement.
+            // Au-delà, on suppose un blocage et on abandonne.
+            let text = await PreviewGenerator.withTimeout(seconds: 30) {
+                await Self.transcribeFirstSeconds(audioURLString: urlString, seconds: 15)
+            }
             await MainActor.run {
                 guard !Task.isCancelled else { return }
                 describingIDs.remove(id)
@@ -2308,11 +2519,25 @@ struct ContentView: View {
         if let text, !text.isEmpty {
             items[idx].title = text
             items[idx].aiDescribed = true
+            items[idx].aiFailed = false
+            // Le transcript est déjà dans la langue de l'utilisateur
+            // (SFSpeechRecognizer utilise la locale courante) → pas de
+            // traduction nécessaire.
+            items[idx].translationDone = true
+            // Invalide la vignette précédente (icône waveform générée
+            // avant la transcription) pour qu'elle soit régénérée en
+            // « page de texte » avec le transcript au prochain
+            // triggerPendingPreviews. removePreviewIfAny supprime le
+            // PNG sur disque, le nil déclenche la regénération.
+            removePreviewIfAny(items[idx])
+            items[idx].previewPath = nil
             saveItems()
         } else {
             // Échec : on marque quand même `aiDescribed` pour éviter tout
             // retry, et on laisse le titre actuel intact.
             items[idx].aiDescribed = true
+            items[idx].aiFailed = true
+            items[idx].translationDone = true
             saveItems()
         }
     }
@@ -2552,7 +2777,7 @@ struct ContentView: View {
 
     private func applyBackup(_ bundle: BackupBundle, mode: RestoreMode) {
         guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
-            importErrorMessage = "App Group container unavailable."
+            importErrorMessage = String(localized: "App Group container unavailable.")
             return
         }
         let dir = containerURL.appendingPathComponent("SharedFiles", isDirectory: true)
@@ -2664,7 +2889,11 @@ struct ContentView: View {
                     note: item.note,
                     ocrDone: item.ocrDone,
                     previewPath: nil,
-                    aiCallsCount: item.aiCallsCount
+                    aiCallsCount: item.aiCallsCount,
+                    translationDone: item.translationDone,
+                    ocrFailed: item.ocrFailed,
+                    titleFetchFailed: item.titleFetchFailed,
+                    aiFailed: item.aiFailed
                 )
                 result[i] = copy
             }
@@ -2769,18 +2998,6 @@ struct ContentView: View {
     // MARK: - AI image description
 
     private func startAIDescribe(item: SharedItem, provider: String, apiKey: String, customModel: String) {
-        // On ne compte QUE les providers cloud (OpenAI / Anthropic) ; les
-        // appels Apple Intelligence (on-device Vision) sont exempts.
-        if provider != "apple" {
-            recordAICall()
-            // Incrémente le compteur per-item (plafond : 5 appels). Le
-            // plafond est respecté par le check préalable dans
-            // `triggerPendingAIDescriptions`.
-            if let idx = items.firstIndex(where: { $0.id == item.id }) {
-                items[idx].aiCallsCount = (items[idx].aiCallsCount ?? 0) + 1
-                saveItems()
-            }
-        }
         describingIDs.insert(item.id)
         let id = item.id
         let urlString = item.url
@@ -2790,7 +3007,23 @@ struct ContentView: View {
                                                        apiKey: apiKey,
                                                        customModel: customModel)
             await MainActor.run {
+                // Si la Task a été annulée pendant l'attente du résultat
+                // (ex: 1C par l'utilisateur), on ne consomme PAS de
+                // crédit ni dans le compteur global ni dans le cap
+                // per-item — la requête HTTP a peut-être abouti côté
+                // provider (léger sous-comptage acceptable) mais
+                // l'utilisateur a explicitement renoncé. Sans ça, 5
+                // cancellations rapides cappaient l'item à tort.
                 guard !Task.isCancelled else { return }
+                // Comptage APRÈS complétion : on ne compte QUE les
+                // providers cloud (OpenAI / Anthropic) — Apple
+                // Intelligence on-device est exempt.
+                if provider != "apple" {
+                    recordAICall()
+                    if let idx = items.firstIndex(where: { $0.id == id }) {
+                        items[idx].aiCallsCount = (items[idx].aiCallsCount ?? 0) + 1
+                    }
+                }
                 describingIDs.remove(id)
                 aiTasks.removeValue(forKey: id)
                 updateBackgroundTasksCount()
@@ -2837,8 +3070,13 @@ struct ContentView: View {
         guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[idx].aiCallsCount = 0
         // Réautorise un nouveau cycle d'IA en réinitialisant aussi le
-        // drapeau « tentative déjà faite ».
+        // drapeau « tentative déjà faite », l'échec, la traduction et
+        // l'OCR.
         items[idx].aiDescribed = nil
+        items[idx].aiFailed = nil
+        items[idx].translationDone = nil
+        items[idx].ocrDone = nil
+        items[idx].ocrFailed = nil
         saveItems()
     }
 
@@ -2847,6 +3085,12 @@ struct ContentView: View {
         if let description, !description.isEmpty {
             items[idx].title = description
             items[idx].aiDescribed = true
+            items[idx].aiFailed = false
+            // On reset le drapeau de traduction puisque le titre est
+            // tout neuf (en anglais pour Apple Vision). Sera re-positionné
+            // à `true` par `LabelTranslator` quand la traduction
+            // aboutit (ou est tentée sans succès).
+            items[idx].translationDone = nil
             saveItems()
             // Si la langue de l'app n'est pas l'anglais et que les labels
             // viennent d'Apple Vision (anglais), enfiler pour traduction
@@ -2855,12 +3099,45 @@ struct ContentView: View {
                 let lang = Locale.current.language.languageCode?.identifier ?? "en"
                 if lang != "en", #available(iOS 18.0, *) {
                     pendingLabelTranslations.append(LabelTranslationJob(id: id, sourceText: description))
+                    updateBackgroundTasksCount()
                 }
+            } else {
+                // Pour les providers cloud, le prompt demande déjà la
+                // langue cible → pas de traduction supplémentaire,
+                // on marque comme « traduit » pour éviter les retries.
+                items[idx].translationDone = true
+                saveItems()
             }
         } else {
+            // Échec : description IA n'a rien renvoyé.
             items[idx].aiDescribed = true
+            items[idx].aiFailed = true
             saveItems()
         }
+    }
+
+    /// Lance la traduction Apple pour chaque item visible avec une
+    /// description IA Apple non encore traduite. Sert au refresh
+    /// global (1A et 1B) pour boucher le trou : sinon une queue
+    /// `pendingLabelTranslations` interrompue (ex: erreur de session)
+    /// laisse les jobs en attente indéfiniment.
+    private func retryPendingTranslationsForCurrent() {
+        guard #available(iOS 18.0, *) else { return }
+        let lang = Locale.current.language.languageCode?.identifier ?? "en"
+        guard lang != "en" else { return }
+        let provider = UserDefaults.standard.string(forKey: "describeImagesProvider") ?? "anthropic"
+        guard provider == "apple" else { return }
+
+        let alreadyQueued = Set(pendingLabelTranslations.map(\.id))
+        for it in currentItems
+            where (it.effectiveKind == "photo" || it.effectiveKind == "video")
+                && it.aiDescribed == true
+                && it.translationDone != true
+                && !alreadyQueued.contains(it.id) {
+            guard let title = it.title, !title.isEmpty else { continue }
+            pendingLabelTranslations.append(LabelTranslationJob(id: it.id, sourceText: title))
+        }
+        updateBackgroundTasksCount()
     }
 
     /// Charge l'image, la convertit en JPEG (max 1568 px sur le plus grand
@@ -3296,6 +3573,21 @@ struct ContentView: View {
         // remet leur path à nil et triggerPendingPreviews relancera la
         // génération au prochain cycle.
         retryFailedPreviews()
+        // Et le reverse geocoding des photos visibles avec lat/lon mais
+        // sans placeName — `startReverseGeocode` n'est sinon déclenché
+        // que par le `.onAppear` de la ligne, donc une photo dont la
+        // localisation a été annulée via 1C reste sans placeName tant
+        // que l'utilisateur ne scrolle pas.
+        retryPendingGeocodesForCurrent()
+        // Idem pour les titres HTML des URLs visibles sans titre.
+        retryPendingTitlesForCurrent()
+        // Idem pour les traductions Apple non encore appliquées.
+        retryPendingTranslationsForCurrent()
+        // Idem pour les OCR Vision en échec.
+        retryFailedOCRsForCurrent()
+        // Idem pour les transcriptions audio cancellées avant
+        // complétion (le speech-to-text est on-device et gratuit).
+        retryPendingAudioTranscriptionsForCurrent()
         if let existing = refreshTask {
             await existing.value
             return
@@ -3311,12 +3603,40 @@ struct ContentView: View {
         updateBackgroundTasksCount()
     }
 
+    /// Lance le reverse geocoding pour chaque photo actuellement
+    /// affichée qui a des coordonnées GPS mais pas encore de
+    /// `placeName` (ou un placeName vide signifiant échec antérieur),
+    /// et qui n'est pas déjà en cours. Sert à boucher le trou : sinon
+    /// `startReverseGeocode` n'est appelée QUE depuis le `.onAppear`
+    /// de la ligne, donc une photo dont le geocoding a été annulé
+    /// (Stop refreshing avant fin) reste sans placeName tant que
+    /// l'utilisateur ne scrolle pas la ligne hors / dans le viewport.
+    private func retryPendingGeocodesForCurrent() {
+        for it in currentItems
+            where it.effectiveKind == "photo"
+                && it.latitude != nil
+                && it.longitude != nil
+                && (it.placeName == nil || it.placeName == "")
+                && !geocodingIDs.contains(it.id) {
+            // Reset éventuel d'un placeName "" (échec antérieur) à nil
+            // pour que `startReverseGeocode` puisse réécrire le résultat.
+            if it.placeName == "" {
+                if let idx = items.firstIndex(where: { $0.id == it.id }) {
+                    items[idx].placeName = nil
+                }
+            }
+            startReverseGeocode(for: it)
+        }
+    }
+
     private func retryFailedPreviews() {
-        // On ne retente QUE les vignettes en échec (`previewPath == ""`)
-        // des items actuellement affichés dans la liste principale.
-        // Idem refresh des dates URL : on travaille sur une copie
-        // locale pour ne déclencher qu'UNE seule réassignation de
-        // @State (sinon les Menus de la toolbar clignotent).
+        // On ne retente QUE les vignettes avec `previewPath == ""`
+        // (échec d'une tentative précédente OU effacement volontaire
+        // via « Clear previews of these URLs ») des items actuellement
+        // affichés dans la liste principale. Idem refresh des dates
+        // URL : on travaille sur une copie locale pour ne déclencher
+        // qu'UNE seule réassignation de @State (sinon les Menus de la
+        // toolbar clignotent).
         let visibleIDs = Set(currentItems.map(\.id))
         var newItems = items
         var changed = false
@@ -3345,6 +3665,9 @@ struct ContentView: View {
             || !aiTasks.isEmpty
             || !dateFetchTasks.isEmpty
             || !geocodeTasks.isEmpty
+            || !titleFetchTasks.isEmpty
+            || !ocrTasks.isEmpty
+            || !pendingLabelTranslations.isEmpty
     }
 
     private func toggleRefreshAllDates() {
@@ -3365,6 +3688,11 @@ struct ContentView: View {
             autoTriggersPaused = false
             showRefreshAnnouncement()
             retryFailedPreviews()
+            retryPendingGeocodesForCurrent()
+            retryPendingTitlesForCurrent()
+            retryPendingTranslationsForCurrent()
+            retryFailedOCRsForCurrent()
+            retryPendingAudioTranscriptionsForCurrent()
             refreshTask = Task { @MainActor in
                 await refreshAllURLDates()
                 refreshTask = nil
@@ -3385,6 +3713,9 @@ struct ContentView: View {
                   + aiTasks.count
                   + dateFetchTasks.count
                   + geocodeTasks.count
+                  + titleFetchTasks.count
+                  + ocrTasks.count
+                  + pendingLabelTranslations.count
                   + (refreshTask != nil ? 1 : 0)
         if BackgroundTasksMonitor.shared.activeCount != total {
             BackgroundTasksMonitor.shared.activeCount = total
@@ -3392,14 +3723,37 @@ struct ContentView: View {
     }
 
     private func cancelAllRunningTasks() {
-        for (_, task) in previewTasks   { task.cancel() }
-        for (_, task) in aiTasks        { task.cancel() }
-        for (_, task) in dateFetchTasks { task.cancel() }
-        for (_, task) in geocodeTasks   { task.cancel() }
+        for (_, task) in previewTasks    { task.cancel() }
+        for (_, task) in aiTasks         { task.cancel() }
+        for (_, task) in dateFetchTasks  { task.cancel() }
+        for (_, task) in geocodeTasks    { task.cancel() }
+        for (_, task) in titleFetchTasks { task.cancel() }
+        // Pour les OCR en vol : on cancel ET on marque les items
+        // concernés comme `ocrFailed = true` afin que
+        // `triggerPendingOCR` ne les relance pas immédiatement
+        // (autoTriggersPaused bloque déjà mais ça libère l'utilisateur
+        // après une éventuelle reprise via Refresh).
+        let cancelledOCRIDs = Array(ocrTasks.keys)
+        for (_, task) in ocrTasks { task.cancel() }
+        if !cancelledOCRIDs.isEmpty {
+            var newItems = items
+            for idx in newItems.indices where cancelledOCRIDs.contains(newItems[idx].id) {
+                newItems[idx].ocrDone = true
+                newItems[idx].ocrFailed = true
+            }
+            items = newItems
+            saveItems()
+        }
         previewTasks.removeAll()
         aiTasks.removeAll()
         dateFetchTasks.removeAll()
         geocodeTasks.removeAll()
+        titleFetchTasks.removeAll()
+        ocrTasks.removeAll()
+        // Vide la queue de traduction Apple : les jobs restants ne
+        // seront pas traduits ; ils pourront être ré-enqueués via 1A,
+        // 1B ou « Refresh AI text » si nécessaire.
+        pendingLabelTranslations.removeAll()
         generatingPreviewIDs.removeAll()
         describingIDs.removeAll()
         fetchingDateIDs.removeAll()
@@ -3489,20 +3843,85 @@ struct ContentView: View {
         guard item.title == nil || item.title?.isEmpty == true,
               let url = URL(string: item.url),
               url.scheme == "http" || url.scheme == "https" else { return }
+        // Gate anti-doublon : si une fetch est déjà en vol pour cet
+        // item (ex: la ligne ré-affichée plusieurs fois en peu de
+        // temps), on ne lance pas un 2ᵉ HEAD HTTP.
+        guard !titleFetchTasks.keys.contains(item.id) else { return }
+        // Bloque les retentatives automatiques après échec : si la
+        // dernière tentative n'a pas trouvé de balise <title>, on ne
+        // re-spamme pas le serveur à chaque scroll. L'utilisateur peut
+        // forcer via 1A/1B.
+        guard item.titleFetchFailed != true else { return }
 
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            guard let data, let html = String(data: data, encoding: .utf8),
-                  let match = html.range(of: "<title[^>]*>([^<]+)</title>", options: .regularExpression) else { return }
-            let tag = html[match]
-            guard let start = tag.firstIndex(of: ">"), let end = tag.range(of: "</title>") else { return }
-            let title = tag[tag.index(after: start)..<end.lowerBound]
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !title.isEmpty {
-                DispatchQueue.main.async {
-                    updateItemTitle(id: item.id, to: String(title))
+        let id = item.id
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10  // timeout explicite, sinon URLSession utilise 60 s par défaut
+        let task = Task.detached(priority: .utility) {
+            let title: String? = await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
+                let dataTask = URLSession.shared.dataTask(with: req) { data, _, _ in
+                    guard let data, let html = String(data: data, encoding: .utf8),
+                          let match = html.range(of: "<title[^>]*>([^<]+)</title>", options: .regularExpression) else {
+                        cont.resume(returning: nil); return
+                    }
+                    let tag = html[match]
+                    guard let start = tag.firstIndex(of: ">"),
+                          let end = tag.range(of: "</title>") else {
+                        cont.resume(returning: nil); return
+                    }
+                    let t = tag[tag.index(after: start)..<end.lowerBound]
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    cont.resume(returning: t.isEmpty ? nil : String(t))
+                }
+                dataTask.resume()
+            }
+            await MainActor.run {
+                guard !Task.isCancelled else { return }
+                titleFetchTasks.removeValue(forKey: id)
+                updateBackgroundTasksCount()
+                if let title {
+                    updateItemTitle(id: id, to: title)
+                } else {
+                    // Échec : on marque pour ne pas re-spammer.
+                    if let idx = items.firstIndex(where: { $0.id == id }) {
+                        items[idx].titleFetchFailed = true
+                        saveItems()
+                    }
                 }
             }
-        }.resume()
+        }
+        titleFetchTasks[id] = task
+        updateBackgroundTasksCount()
+    }
+
+    /// Lance le fetch du <title> HTML pour chaque URL de
+    /// `currentItems` qui n'a pas (encore) de titre. Sert au refresh
+    /// global (1A et 1B) pour boucher le trou : sans ça, un titre
+    /// jamais récupéré n'est plus retenté que via le `.onAppear` de
+    /// la ligne.
+    private func retryPendingTitlesForCurrent() {
+        // Reset des marqueurs d'échec pour permettre la nouvelle
+        // tentative — `fetchTitle` vérifie ensuite `titleFetchFailed
+        // != true` donc il faut d'abord remettre à nil.
+        var newItems = items
+        var changed = false
+        let visibleIDs = Set(currentItems.map(\.id))
+        for idx in newItems.indices
+            where newItems[idx].effectiveKind == "url"
+                && newItems[idx].titleFetchFailed == true
+                && visibleIDs.contains(newItems[idx].id) {
+            newItems[idx].titleFetchFailed = nil
+            changed = true
+        }
+        if changed {
+            items = newItems
+            saveItems()
+        }
+        for it in currentItems
+            where it.effectiveKind == "url"
+                && (it.title == nil || it.title?.isEmpty == true)
+                && !titleFetchTasks.keys.contains(it.id) {
+            fetchTitle(for: it)
+        }
     }
 
     private func updateItemTitle(id: String, to title: String) {
@@ -3720,6 +4139,11 @@ struct LabelTranslationJob: Identifiable, Equatable {
 struct LabelTranslator: View {
     @Binding var pending: [LabelTranslationJob]
     let onTranslated: (_ id: String, _ translated: String) -> Void
+    /// Appelé en cas d'échec de la traduction d'un job (réseau, langue
+    /// non disponible, session invalidée, etc.) pour que le caller
+    /// puisse marquer l'item comme « tenté » et éviter les retries
+    /// infinis.
+    let onFailed: (_ id: String) -> Void
 
     @State private var config: TranslationSession.Configuration? = nil
 
@@ -3769,6 +4193,9 @@ struct LabelTranslator: View {
                 }
             } catch {
                 print("Translation error: \(error.localizedDescription)")
+                await MainActor.run {
+                    onFailed(job.id)
+                }
             }
         }
     }
@@ -3966,11 +4393,30 @@ enum PreviewGenerator {
         case "video":
             image = renderVideo(urlString: item.url)
         case "audio":
-            image = renderSymbol("waveform", color: .systemTeal)
+            // Si la transcription speech-to-text est terminée et a
+            // produit un texte, on rend une vignette type « page »
+            // identique au type texte. Sinon (transcription pas
+            // encore finie ou échouée), on retombe sur l'icône
+            // waveform.
+            if item.aiDescribed == true,
+               let title = item.title, !title.isEmpty {
+                image = renderText(title)
+            } else {
+                image = renderSymbol("waveform", color: .systemTeal)
+            }
         case "text":
             image = renderText(item.url)
         case "file":
-            image = renderFile(urlString: item.url, title: item.title)
+            // QuickLook fournit nativement une miniature de la 1ʳᵉ
+            // page pour les types qu'il sait afficher (PDF, Office,
+            // iWork, RTF, code…). Si ça échoue (format inconnu, fichier
+            // corrompu, timeout), on retombe sur l'icône doc.fill +
+            // nom de fichier.
+            if let qlImage = await renderFileQuickLook(urlString: item.url) {
+                image = scaleAspectFit(image: qlImage)
+            } else {
+                image = renderFile(urlString: item.url, title: item.title)
+            }
         default: // "url"
             let raw = item.originalURL ?? item.url
             // Cas spécial YouTube : on récupère directement la miniature
@@ -4023,25 +4469,58 @@ enum PreviewGenerator {
         }
     }
 
+    /// Rend l'item texte comme une « page » : fond blanc, marges
+    /// fines, texte noir en très petite taille (6 pt logique = 18 pt
+    /// stocké en ×3, donc lisible quand on zoome dans la grille
+    /// d'aperçus). Le texte s'écoule en multi-ligne via
+    /// `.usesLineFragmentOrigin` et est naturellement clippé en bas si
+    /// trop long, comme un screenshot du haut d'une page web.
     private static func renderText(_ raw: String) -> UIImage {
-        let trimmed = String(raw.prefix(160))
         return blankCanvas { _ in
+            UIColor.white.setFill()
+            UIRectFill(CGRect(origin: .zero, size: size))
+
             let style = NSMutableParagraphStyle()
-            style.lineBreakMode = .byTruncatingTail
             style.alignment = .left
+            style.lineBreakMode = .byWordWrapping
+            style.lineSpacing = 0.5
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 13, weight: .regular),
-                .foregroundColor: UIColor.label,
+                .font: UIFont.systemFont(ofSize: 6, weight: .regular),
+                .foregroundColor: UIColor.black,
                 .paragraphStyle: style
             ]
-            let inset: CGFloat = 12
+            let inset: CGFloat = 6
             let rect = CGRect(x: inset, y: inset,
                               width: size.width - 2 * inset,
                               height: size.height - 2 * inset)
-            (trimmed as NSString).draw(with: rect,
-                                       options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-                                       attributes: attrs,
-                                       context: nil)
+            // `.usesLineFragmentOrigin` enchaîne les lignes ; pas de
+            // `truncatesLastVisibleLine` → le clipping naturel coupe
+            // simplement en bas, comme une capture du haut de page.
+            (raw as NSString).draw(with: rect,
+                                   options: [.usesLineFragmentOrigin],
+                                   attributes: attrs,
+                                   context: nil)
+        }
+    }
+
+    /// Capture la 1ʳᵉ page d'un fichier via QuickLookThumbnailing
+    /// (PDF, Office, iWork, RTF, code, etc.). Renvoie nil sur format
+    /// non supporté ou timeout (10 s) — l'appelant retombe alors sur
+    /// le rendu icône + nom de fichier.
+    static func renderFileQuickLook(urlString: String) async -> UIImage? {
+        guard let url = URL(string: urlString), url.isFileURL else { return nil }
+        // Demande une miniature plus grande que 320×200 pour tenir
+        // compte du downscale ×3 ensuite — pixels nets en zoom.
+        let req = QLThumbnailGenerator.Request(
+            fileAt: url,
+            size: CGSize(width: 640, height: 400),
+            scale: 3,
+            representationTypes: .thumbnail
+        )
+        return await snapshotWithTimeout(seconds: 10) { complete in
+            QLThumbnailGenerator.shared.generateBestRepresentation(for: req) { rep, _ in
+                complete(rep?.uiImage)
+            }
         }
     }
 
@@ -4321,6 +4800,34 @@ enum PreviewGenerator {
     final class SnapshotTimeoutState {
         let lock = NSLock()
         var resumed: Bool = false
+    }
+
+    /// Wrapper générique de timeout pour une fonction async qui renvoie
+    /// un `T?`. La première résolution gagne (operation ou minuteur),
+    /// l'autre est ignorée silencieusement. Utile pour `recognizeText`
+    /// (Vision OCR) ou tout autre call async sans timeout interne.
+    static func withTimeout<T>(seconds: TimeInterval,
+                               operation: @escaping () async -> T?) async -> T? {
+        await withCheckedContinuation { (cont: CheckedContinuation<T?, Never>) in
+            let state = SnapshotTimeoutState()
+            let resume: (T?) -> Void = { val in
+                state.lock.lock()
+                let already = state.resumed
+                state.resumed = true
+                state.lock.unlock()
+                if !already {
+                    cont.resume(returning: val)
+                }
+            }
+            Task {
+                let result = await operation()
+                resume(result)
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                resume(nil)
+            }
+        }
     }
 
     /// Sémaphore async qui sérialise les rendus WKWebView. Un seul
@@ -4781,6 +5288,11 @@ struct StatsPanelView: View {
                         .foregroundColor(.secondary)
                         .monospacedDigit()
                         .contentTransition(.numericText(value: Double(tasks.activeCount)))
+                        // Force SwiftUI à interpoler le changement de
+                        // nombre via la `contentTransition` rolling-
+                        // digits définie ci-dessus, même quand la valeur
+                        // varie de quelques unités à la fois.
+                        .animation(.easeInOut(duration: 0.4), value: tasks.activeCount)
                 }
                 .transition(.asymmetric(
                     insertion: .opacity.combined(with: .move(edge: .top)),

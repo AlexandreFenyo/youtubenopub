@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Captured — Tâches background par type d'objet</title>
+<style>
+:root {
+    --bg: #f5f5f7;
+    --fg: #1d1d1f;
+    --panel: #ffffff;
+    --border: #d2d2d7;
+    --header-bg: #1d1d1f;
+    --header-fg: #ffffff;
+    --row-alt: #fafafa;
+    --yes: #34c759;
+    --no: #d2d2d7;
+    --partial: #ff9500;
+    --accent: #007aff;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #1d1d1f;
+        --fg: #f5f5f7;
+        --panel: #2c2c2e;
+        --border: #3a3a3c;
+        --header-bg: #000000;
+        --header-fg: #ffffff;
+        --row-alt: #242426;
+        --no: #48484a;
+    }
+}
+* { box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    margin: 0;
+    padding: 24px;
+    line-height: 1.5;
+}
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+h1 {
+    font-size: 28px;
+    margin: 0 0 8px;
+    font-weight: 700;
+}
+.subtitle {
+    color: #8e8e93;
+    margin: 0 0 28px;
+    font-size: 15px;
+}
+.table-wrap {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    margin-bottom: 32px;
+    overflow-x: auto;
+}
+table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 1100px;
+    font-size: 13px;
+}
+th, td {
+    padding: 12px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+}
+thead th {
+    background: var(--header-bg);
+    color: var(--header-fg);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    position: sticky;
+    top: 0;
+}
+tbody tr:nth-child(even) { background: var(--row-alt); }
+tbody tr:last-child td { border-bottom: none; }
+.kind {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--accent);
+    white-space: nowrap;
+}
+.cell-yes { background: rgba(52, 199, 89, 0.08); }
+.cell-no  { color: #8e8e93; }
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-right: 4px;
+}
+.badge.ok { background: var(--yes); color: white; }
+.badge.skip { background: var(--no); color: var(--fg); }
+.badge.warn { background: var(--partial); color: white; }
+code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    background: rgba(127, 127, 127, 0.12);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+h2 {
+    font-size: 20px;
+    margin: 32px 0 12px;
+    font-weight: 600;
+}
+ul.mechanism {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 16px 16px 36px;
+    margin: 0 0 24px;
+}
+ul.mechanism li {
+    margin-bottom: 8px;
+}
+ul.mechanism li:last-child { margin-bottom: 0; }
+ol.friction {
+    background: rgba(255, 149, 0, 0.08);
+    border: 1px solid rgba(255, 149, 0, 0.3);
+    border-radius: 12px;
+    padding: 16px 16px 16px 36px;
+    margin: 0 0 24px;
+}
+ol.friction li {
+    margin-bottom: 10px;
+}
+ol.friction li:last-child { margin-bottom: 0; }
+ol.friction strong { color: #ff9500; }
+.legend {
+    display: flex;
+    gap: 18px;
+    margin: 14px 0 24px;
+    font-size: 13px;
+    color: #8e8e93;
+    flex-wrap: wrap;
+}
+.legend span::before {
+    content: "";
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    margin-right: 6px;
+    vertical-align: -1px;
+}
+.legend .l-yes::before { background: var(--yes); }
+.legend .l-no::before  { background: var(--no); }
+.legend .l-warn::before { background: var(--partial); }
+.triggers {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 22px;
+    margin: 0 0 28px;
+}
+.triggers h3 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+    font-weight: 700;
+}
+.triggers h3:not(:first-child) { margin-top: 18px; }
+.triggers ul {
+    margin: 0 0 0 22px;
+    padding: 0;
+}
+.triggers li { margin-bottom: 6px; }
+.triggers li:last-child { margin-bottom: 0; }
+.triggers ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.action-id {
+    display: inline-block;
+    min-width: 32px;
+    padding: 2px 7px;
+    margin-right: 8px;
+    border-radius: 5px;
+    background: var(--accent);
+    color: white;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    vertical-align: 1px;
+}
+.friction-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 24px;
+    font-size: 13px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+.friction-table th, .friction-table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+}
+.friction-table thead th {
+    background: var(--header-bg);
+    color: var(--header-fg);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+.friction-table tbody tr:last-child td { border-bottom: none; }
+.friction-table tbody tr:nth-child(even) { background: var(--row-alt); }
+.fric-id {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-weight: 700;
+    color: var(--accent);
+    white-space: nowrap;
+}
+.fric-status-resolved {
+    background: var(--yes);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.fric-status-residual {
+    background: var(--partial);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.triggers .note {
+    background: rgba(0, 122, 255, 0.06);
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px;
+    margin: 10px 0 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.55;
+}
+.triggers .note strong { color: var(--accent); }
+.triggers .ascii {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 10px 0 14px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.45;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--fg);
+}
+.triggers .arrow {
+    color: var(--accent);
+    margin: 0 4px;
+    font-weight: 600;
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>Captured — Opérations background par type d'objet</h1>
+    <p class="subtitle">Tableau récapitulatif des tâches lancées en arrière-plan, des mécanismes anti-collision en place, et des points de friction identifiés.</p>
+
+    <h2>Déclencheurs d'opérations background</h2>
+    <div class="triggers">
+        <h3>1. Actions explicites de l'utilisateur</h3>
+        <ul>
+            <li><span class="action-id">1A</span><strong>Pull-to-refresh</strong> sur la liste principale <span class="arrow">→</span> <code>pullToRefreshDates()</code> : lève la pause + retry des aperçus en échec + retry du reverse geocoding pour les photos visibles sans <code>placeName</code> + retry du fetch <code>&lt;title&gt;</code> HTML pour les URLs visibles sans titre + retry des traductions Apple non encore appliquées + retry des OCR Vision en échec (sans relancer la description IA) + retry des transcriptions audio cancellées avant complétion + refresh batch des dates Last-Modified pour les URLs visibles.</li>
+            <li><span class="action-id">1B</span><strong>Menu …</strong> &nbsp;➜&nbsp; <em>Refresh previews and URL dates</em> <span class="arrow">→</span> <code>toggleRefreshAllDates()</code> branche start : équivalent au pull-to-refresh (inclut tous les retries listés en 1A).</li>
+            <li><span class="action-id">1C</span><strong>Menu …</strong> &nbsp;➜&nbsp; <em>Stop refreshing previews and URL dates</em> <span class="arrow">→</span> <code>cancelAllRunningTasks()</code> : annule TOUTES les tâches en vol et active <code>autoTriggersPaused</code>.</li>
+            <li><span class="action-id">1D</span><strong>Menu …</strong> &nbsp;➜&nbsp; <em>Refresh AI text</em> <span class="arrow">→</span> <code>refreshAITextForCurrent()</code> : reset titre/aiDescribed/ocrDone des photos/videos/audios visibles + lance explicitement les tâches IA pour chacun.</li>
+            <li><span class="action-id">1E</span><strong>Menu …</strong> &nbsp;➜&nbsp; <em>Reset AI counters</em> <span class="arrow">→</span> remet à zéro les compteurs globaux <strong>et</strong> les caps per-item de 5. Ne lance aucune tâche directement, mais débloque les triggers auto pour les items précédemment cappés.</li>
+            <li><span class="action-id">1F</span><strong>Menu trash</strong> &nbsp;➜&nbsp; <em>Clear previews of these URLs</em> <span class="arrow">→</span> <code>clearPreviewsForCurrent()</code> : annule les Tasks de génération en vol pour ces URLs, supprime les PNG, marque <code>previewPath = ""</code>. Ne relance rien.</li>
+            <li><span class="action-id">1G</span><strong>Menu trash</strong> &nbsp;➜&nbsp; <em>Clear AI-generated text of these items</em> <span class="arrow">→</span> <code>clearAITextForCurrent()</code> : reset titre, marque <code>aiDescribed = ocrDone = true</code> pour bloquer relance auto. Ne relance rien.</li>
+            <li><span class="action-id">1H</span><strong>Menu contextuel d'une ligne</strong> &nbsp;➜&nbsp; <em>Regenerate preview</em> (photo/video/file) <span class="arrow">→</span> <code>regeneratePreviewOnly(for:)</code> : reset previewPath + lance explicitement <code>startPreviewGeneration</code> pour cet item.</li>
+            <li><span class="action-id">1I</span><strong>Menu contextuel d'une ligne URL</strong> &nbsp;➜&nbsp; <em>Regenerate preview and date</em> <span class="arrow">→</span> <code>regeneratePreview(for:)</code> : reset previewPath + modifiedAt, lance <code>startFetchLastModified</code> ET <code>startPreviewGeneration</code> en parallèle pour cet item.</li>
+            <li><span class="action-id">1J</span><strong>Menu contextuel d'une ligne</strong> &nbsp;➜&nbsp; <em>Regenerate AI text</em> (photo/video/audio) <span class="arrow">→</span> <code>regenerateAIText(for:)</code> : reset titre + marqueurs IA, lance <code>startAIDescribe</code> ou <code>startAudioTranscription</code> pour cet item.</li>
+            <li><span class="action-id">1K</span><strong>Menu contextuel d'une ligne IA-cappée</strong> &nbsp;➜&nbsp; <em>Reset AI call limit</em> <span class="arrow">→</span> remet <code>aiCallsCount = 0</code> et <code>aiDescribed = nil</code> pour cet item, ce qui le rend à nouveau éligible aux triggers auto.</li>
+        </ul>
+
+        <h3>2. Événements système / cycle de vie</h3>
+        <ul>
+            <li><span class="action-id">2A</span><strong>Partage d'un nouvel item via la Share Extension</strong> : le Share Extension écrit dans UserDefaults App Group et appelle <code>WidgetCenter.reloadAllTimelines()</code>. L'app principale détecte le nouvel item au prochain tick du timer 100 ms.</li>
+            <li><span class="action-id">2B</span><strong>Détection d'un nouvel item URL</strong> dans <code>loadItems()</code> (uniquement après le premier chargement, donc pas au tout démarrage de l'app) <span class="arrow">→</span> <code>startFetchLastModified(for:)</code> automatique pour fetcher la date Last-Modified.</li>
+            <li><span class="action-id">2C</span><strong>Reprise foreground</strong> (<code>UIApplication.willEnterForegroundNotification</code> / <code>didBecomeActiveNotification</code>) <span class="arrow">→</span> <code>loadItems()</code> qui peut détecter de nouveaux items partagés pendant que l'app était en background.</li>
+            <li><span class="action-id">2D</span><strong>Render d'une ligne URL</strong> (<code>.onAppear</code>) <span class="arrow">→</span> <code>fetchTitle(for:)</code> : récupère le <code>&lt;title&gt;</code> du HTML si l'item n'en a pas. Désormais tracé dans <code>titleFetchTasks</code> (anti-doublon, comptabilisé, annulable par 1C, timeout 10 s explicite).</li>
+            <li><span class="action-id">2E</span><strong>Render d'une ligne photo</strong> avec EXIF GPS sans placeName (<code>.onAppear</code>) <span class="arrow">→</span> <code>startReverseGeocode(for:)</code> via CLGeocoder.</li>
+            <li><span class="action-id">2F</span><strong>Démarrage de l'app</strong> (<code>.onAppear</code> de ContentView) : <strong>aucun refresh automatique</strong>. L'utilisateur doit déclencher explicitement.</li>
+        </ul>
+
+        <h3>3. Triggers automatiques périodiques (timer 100 ms, sauf si <code>autoTriggersPaused</code>)</h3>
+
+        <div class="note">
+            <strong>Important :</strong> il n'y a <strong>pas une tâche périodique par item</strong>. Il y a <strong>un seul timer global de 100 ms</strong> (le même que <span class="action-id" style="background: var(--accent);">5B</span>) qui appelle <code>loadItems()</code>, lequel appelle ensuite les 4 fonctions <code>triggerPending…</code> ci-dessous. <strong>Chacune fait un balayage linéaire de tout le tableau <code>items</code></strong> avec un <code>for ... where ...</code>, et ne démarre une <code>Task.detached</code> que pour les items qui passent le filtre ET qui ne sont pas déjà en cours de traitement (vérifié via les sets <code>generatingPreviewIDs</code> / <code>describingIDs</code> / <code>fetchingDateIDs</code>).
+        </div>
+
+        <div class="ascii">Timer 100 ms (1 seul)
+   │
+   └─→ loadItems()
+         │
+         ├─→ triggerPendingAIDescriptions()      ── for item in items where … { startAIDescribe(item) }
+         ├─→ triggerPendingOCR()                 ── for item in items where … { startOCR(item) }
+         ├─→ triggerPendingAudioTranscriptions() ── for item in items where … { startAudioTranscription(item) }
+         └─→ triggerPendingPreviews()            ── for item in items where … { startPreviewGeneration(item) }</div>
+
+        <div class="note">
+            <strong>Coût d'un tick :</strong> 4 itérations linéaires sur <code>items</code> toutes les 100 ms (10×/s). Avec N = 1000 items, 40 000 itérations/s — négligeable côté CPU (les <code>where</code> ne lisent que des champs déjà en mémoire).<br>
+            <strong>Latence d'un nouveau partage :</strong> entre 0 et 100 ms avant qu'une tâche ne démarre pour le nouvel item.<br>
+            <strong>Effet de Stop refreshing :</strong> bascule <code>autoTriggersPaused = true</code> ; les 4 fonctions retournent alors immédiatement (<code>guard !autoTriggersPaused else { return }</code>) → plus aucune nouvelle tâche n'est démarrée. Les tâches déjà en vol continuent (annulées séparément par <code>cancelAllRunningTasks</code>).
+        </div>
+
+        <ul>
+            <li><span class="action-id">3A</span><code>triggerPendingAIDescriptions()</code> : pour chaque photo/video sans <code>aiDescribed</code> et sous le cap per-item de 5 <span class="arrow">→</span> lance <code>startAIDescribe</code>. Le cap (<code>aiCallsCount</code>) et le compteur global rate-limit sont incrémentés <strong>après complétion</strong> de la Task (et seulement si elle n'a pas été cancellée), pour que des Stop refreshing répétés ne consomment pas de crédit à tort.</li>
+            <li><span class="action-id">3B</span><code>triggerPendingOCR()</code> : pour chaque photo/video avec <code>aiDescribed == true</code> (ou IA désactivée), sans <code>ocrDone</code>, et avec <code>ocrFailed != true</code> <span class="arrow">→</span> lance <code>startOCR</code>. La Task est désormais tracée dans <code>ocrTasks</code> (annulable par 1C, comptabilisée), et les échecs sont mémorisés via <code>ocrFailed = true</code> pour bloquer les retries auto. Les refresh globaux 1A/1B remettent <code>ocrFailed</code> à nil pour retenter sans relancer la description IA.</li>
+            <li><span class="action-id">3C</span><code>triggerPendingAudioTranscriptions()</code> : pour chaque audio sans <code>aiDescribed</code> <span class="arrow">→</span> lance <code>startAudioTranscription</code>.</li>
+            <li><span class="action-id">3D</span><code>triggerPendingPreviews()</code> : pour chaque item non-text avec <code>previewPath == nil</code> <span class="arrow">→</span> lance <code>startPreviewGeneration</code>.</li>
+        </ul>
+
+        <h3>4. Effets de bord (déclenchent en cascade)</h3>
+        <ul>
+            <li><span class="action-id">4A</span><strong>Réception d'un Last-Modified plus récent que celui qu'on avait</strong> dans <code>updateItemModifiedAt</code> <span class="arrow">→</span> <code>previewPath</code> de l'URL repassé à <code>nil</code> <span class="arrow">→</span> <code>triggerPendingPreviews</code> au prochain tick recapture la vignette.</li>
+            <li><span class="action-id">4B</span><strong>Tap sur une ligne</strong> <span class="arrow">→</span> <code>markAsSeen(itemID:)</code> qui met à jour <code>lastSeenModifiedAt</code> (pas une tâche background, mais persiste).</li>
+            <li><span class="action-id">4C</span><strong>Reception réussie d'une description IA Apple</strong> alors que la langue de l'app n'est pas anglais <span class="arrow">→</span> ajoute un job dans <code>pendingLabelTranslations</code> que <code>LabelTranslator</code> draine via <code>TranslationSession</code>. Les jobs en queue sont désormais comptabilisés dans le compteur <em>Background tasks</em> et annulables par 1C ; le drapeau <code>translationDone</code> stocké sur chaque item bloque les retries auto et permet aux refresh globaux (1A/1B) de relancer la traduction des items qui ne l'ont pas reçue.</li>
+        </ul>
+
+        <h3>5. Périodiques non liés aux items</h3>
+        <ul>
+            <li><span class="action-id">5A</span><strong>Timer 2 s</strong> dans <code>StatsPanelView</code> <span class="arrow">→</span> <code>recomputeAppDataBytes()</code> : traversée récursive du container App Group pour mettre à jour la taille affichée.</li>
+            <li><span class="action-id">5B</span><strong>Timer 100 ms global</strong> dans <code>ContentView</code> <span class="arrow">→</span> <code>loadItems</code> + <code>checkAIEnabledTransition</code> + <code>checkShareCountForReview</code>.</li>
+        </ul>
+    </div>
+
+    <div class="legend">
+        <span class="l-yes">Effectué pour ce type</span>
+        <span class="l-no">Sans objet</span>
+        <span class="l-warn">Friction / point d'attention</span>
+    </div>
+
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Type</th>
+                <th>Vignette</th>
+                <th>Description IA<br>(cloud / Apple Vision)</th>
+                <th>OCR Vision local</th>
+                <th>Speech-to-text<br>(Apple Speech)</th>
+                <th>Fetch Last-Modified<br>HTTP</th>
+                <th>Reverse geocoding GPS</th>
+                <th>Apple Translation<br>(labels Vision EN→user)</th>
+                <th>Fetch &lt;title&gt; HTML</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="kind">url</td>
+                <td class="cell-yes">✅ <code>WKWebView</code> capture, ou miniature YouTube <code>img.youtube.com/vi/&lt;id&gt;</code></td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-yes">✅ HEAD HTTP, alimente <code>modifiedAt</code> + état non-lu</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-yes">✅ Au render de la ligne (<code>fetchTitle</code> dans <code>.onAppear</code> si <code>title == nil</code>)</td>
+            </tr>
+            <tr>
+                <td class="kind">photo</td>
+                <td class="cell-yes">✅ <code>UIImage.draw</code> aspect-fit dans 320×200</td>
+                <td class="cell-yes">✅ photo entière → OpenAI / Anthropic / Apple <code>VNClassifyImageRequest</code></td>
+                <td class="cell-yes">✅ Vision <code>VNRecognizeTextRequest</code> après l'IA, suffixé au titre</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-yes">✅ Si EXIF GPS présent → CLGeocoder → <code>placeName</code></td>
+                <td class="cell-yes">✅ Si provider Apple + langue ≠ <code>en</code> → <code>TranslationSession</code></td>
+                <td class="cell-no">—</td>
+            </tr>
+            <tr>
+                <td class="kind">video</td>
+                <td class="cell-yes">✅ 1ʳᵉ frame extraite via <code>AVAssetImageGenerator</code></td>
+                <td class="cell-yes">✅ 1ʳᵉ frame → mêmes providers que photo</td>
+                <td class="cell-yes">✅ 1ʳᵉ frame → Vision après l'IA</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-yes">✅ Idem photo si Apple + langue ≠ <code>en</code></td>
+                <td class="cell-no">—</td>
+            </tr>
+            <tr>
+                <td class="kind">audio</td>
+                <td class="cell-yes">✅ Avant transcription : icône <code>waveform</code>. Après transcription speech-to-text réussie : texte du transcript rendu en « page » comme pour le type texte. La vignette est invalidée (<code>previewPath = nil</code>) à la fin de <code>applyAudioTranscription</code> pour déclencher la regénération.</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-yes">✅ <code>SFSpeechRecognizer</code> on-device sur les 15 premières secondes (extrait via <code>AVAssetExportSession</code>)</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+            </tr>
+            <tr>
+                <td class="kind">file (autre)</td>
+                <td class="cell-yes">✅ Capture de la 1ʳᵉ page via <code>QLThumbnailGenerator</code> (PDF, Office, iWork, RTF, code…), 640×400 ×3 puis aspect-fit dans 320×200. Fallback icône <code>doc.fill</code> + nom de fichier si format non géré ou timeout.</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+            </tr>
+            <tr>
+                <td class="kind">text</td>
+                <td class="cell-yes">✅ Texte rendu sur fond blanc en très petite police (6 pt × ×3 retina), wrap multi-ligne via <code>.usesLineFragmentOrigin</code>, clipping naturel en bas si trop long — comme une capture du haut d'une page.</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+                <td class="cell-no">—</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+
+    <h2>Mécanismes anti-collision en place</h2>
+    <ul class="mechanism">
+        <li><strong><code>generatingPreviewIDs</code></strong> : bloque le lancement parallèle d'une 2ᵉ génération de vignette pour le même item.</li>
+        <li><strong><code>describingIDs</code></strong> : bloque la 2ᵉ description IA / transcription audio pour le même item.</li>
+        <li><strong><code>fetchingDateIDs</code></strong> : bloque le 2ᵉ fetch <code>Last-Modified</code> simultané pour le même item.</li>
+        <li><strong><code>geocodingIDs</code></strong> : bloque le 2ᵉ reverse geocoding pour le même item.</li>
+        <li><strong><code>WebPageRenderSemaphore</code></strong> : sérialise globalement les captures <code>WKWebView</code> (une seule à la fois pour toute l'app).</li>
+        <li><strong><code>PreviewGenerator.blankCanvas</code></strong> dispatché sur le main thread pour les rendus UIKit.</li>
+        <li><strong><code>autoTriggersPaused</code></strong> : pause sticky des 4 trigger functions après un Stop refreshing.</li>
+        <li><strong><code>Task.isCancelled</code></strong> vérifié dans <code>renderWebPage</code> aux 3 points-clés (avant acquire, après acquire, après load) pour drainer rapidement les Tasks annulées.</li>
+        <li><strong>Dictionnaires <code>previewTasks</code> / <code>aiTasks</code> / <code>dateFetchTasks</code> / <code>geocodeTasks</code></strong> : <code>Task&lt;Void, Never&gt;</code> indexés par id pour annulation explicite.</li>
+        <li><strong>OCR ↔ IA</strong> : <code>triggerPendingOCR</code> attend explicitement que <code>aiDescribed == true</code> (ou que l'IA soit désactivée) avant de lancer.</li>
+    </ul>
+
+</div>
+</body>
+</html>
