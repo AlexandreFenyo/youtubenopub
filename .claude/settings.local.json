@@ -58,7 +58,9 @@
       "Bash(python3 /tmp/add_ai_strings.py)",
       "Bash(python3 /tmp/add_model_strings.py)",
       "Bash(python3 /tmp/add_backup_strings.py)",
-      "Bash(awk 'BEGIN{lvl=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\); if\\(c==\"{\"\\)lvl++; else if\\(c==\"}\"\\)lvl--}} END{print \"Brace:\", lvl}' /Volumes/external-mac/fenyo/git3/youtubenopub/ShareManager/ContentView.swift)"
+      "Bash(awk 'BEGIN{lvl=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\); if\\(c==\"{\"\\)lvl++; else if\\(c==\"}\"\\)lvl--}} END{print \"Brace:\", lvl}' /Volumes/external-mac/fenyo/git3/youtubenopub/ShareManager/ContentView.swift)",
+      "Bash(python3 /tmp/add_v3_strings.py)",
+      "Bash(plutil -lint /Volumes/external-mac/fenyo/git3/youtubenopub/ShareWidget/Info.plist /Volumes/external-mac/fenyo/git3/youtubenopub/ShareWidget/ShareWidget.entitlements)"
     ]
   }
 }
