@@ -385,6 +385,11 @@ struct ContentView: View {
     /// n'apparaîtra que lorsque l'utilisateur choisira d'effectuer le
     /// collage.
     @State private var hasPasteableContent: Bool = false
+    /// Dernière valeur observée de `UIPasteboard.general.changeCount`.
+    /// On lit le contenu du presse-papiers (qui déclenche la bannière
+    /// « pasted from… ») au plus UNE fois par changement, pas à chaque
+    /// tick du timer 100 ms.
+    @State private var lastPasteboardChangeCount: Int = -1
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.verticalSizeClass) private var vSizeClass
     @State private var editingNoteItem: SharedItem? = nil
@@ -644,6 +649,14 @@ struct ContentView: View {
             if debugLogsEnabled { loadDebugLogs() }
             checkAIEnabledTransition()
             checkShareCountForReview()
+            // Le check pasteboard est piggy-back sur ce timer parce que
+            // `UIPasteboard.changedNotification` n'est PAS posté quand
+            // le contenu change dans une autre app (limitation iOS),
+            // et sur iPadOS multi-fenêtres `didBecomeActive` peut ne
+            // pas se déclencher non plus selon le mode de bascule.
+            // `hasURLs` / `hasStrings` sont des checks gratuits (pas de
+            // bannière système), donc OK de les appeler à 10 Hz.
+            refreshPasteableState()
         }
         // Recalcul de la taille du container App Group : SEULEMENT toutes
         // les 2 s. Avant on était à 100 ms, ce qui sur un container
@@ -2359,14 +2372,34 @@ struct ContentView: View {
         saveItems()
     }
 
-    /// Met à jour `hasPasteableContent` à partir des flags du presse-
-    /// papiers. On consulte uniquement `hasURLs` / `hasStrings` qui sont
-    /// gratuits (pas de bannière système). La validation « est-ce vraiment
-    /// une URL ? » est faite côté action (`pasteAsItem`).
+    /// Met à jour `hasPasteableContent` : vrai uniquement si le presse-
+    /// papiers contient une URL — soit URL typée (`pb.hasURLs`), soit
+    /// chaîne de caractères dont le scheme est `http`/`https`. La
+    /// validation du second cas nécessite de lire `pb.string`, ce qui
+    /// déclenche la bannière système « ShareManager pasted from… ».
+    /// Pour limiter cette bannière à UN affichage par changement de
+    /// presse-papiers, on gate sur `pb.changeCount` : la lecture
+    /// n'a lieu qu'une fois par copy event, même si on est appelé à
+    /// 10 Hz par le timer.
+    /// `detectPatterns(for: [.probableWebURL])` aurait permis le même
+    /// résultat sans bannière, mais l'API s'est révélée non fiable
+    /// dans ce contexte (observé : aucun retour).
     private func refreshPasteableState() {
         let pb = UIPasteboard.general
-        let new = pb.hasURLs || pb.hasStrings
-        if new != hasPasteableContent { hasPasteableContent = new }
+        let cc = pb.changeCount
+        if cc == lastPasteboardChangeCount { return }
+        lastPasteboardChangeCount = cc
+
+        var isURL = pb.hasURLs
+        if !isURL, pb.hasStrings, let s = pb.string {
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let u = URL(string: trimmed),
+               let scheme = u.scheme?.lowercased(),
+               scheme == "http" || scheme == "https" {
+                isURL = true
+            }
+        }
+        if isURL != hasPasteableContent { hasPasteableContent = isURL }
     }
 
     /// Action déclenchée par l'entrée « Paste URL from clipboard » du
