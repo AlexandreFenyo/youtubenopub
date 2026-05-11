@@ -236,35 +236,114 @@ class ShareViewController: UIViewController {
                                       onDone: @escaping (Bool) -> Void) {
         // ===== Image (public.image) =====
         if attachment.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-            log("🖼 Image branch matched. Loading…")
-            attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { [weak self] data, _ in
-                guard let imageURL = data as? URL, imageURL.isFileURL else {
-                    self?.log("⚠️ Image loadItem ne renvoie pas de file URL")
-                    onDone(false); return
+            // Bloc de logs détaillé pour diagnostiquer les cas où une
+            // photo partagée depuis Photos n'arrive pas (Live Photo,
+            // photo iCloud non téléchargée, format exotique, etc.).
+            log("🖼 Image branch matched.")
+            log("    registeredTypeIdentifiers: \(attachment.registeredTypeIdentifiers)")
+            log("    canLoadObject UIImage=\(attachment.canLoadObject(ofClass: UIImage.self)), suggestedName=\(attachment.suggestedName ?? "nil")")
+            attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { [weak self] data, error in
+                guard let self else { onDone(false); return }
+                // 1. Erreur explicite côté loadItem
+                if let error = error {
+                    self.log("⚠️ Image loadItem error: \(error.localizedDescription) — \(String(describing: error))")
                 }
-                let (srcModDate, gps): (Double?, (lat: Double, lon: Double)?) = {
-                    let didStart = imageURL.startAccessingSecurityScopedResource()
-                    defer { if didStart { imageURL.stopAccessingSecurityScopedResource() } }
-                    var mod: Double? = nil
-                    if let attrs = try? FileManager.default.attributesOfItem(atPath: imageURL.path),
-                       let d = attrs[.modificationDate] as? Date {
-                        mod = d.timeIntervalSince1970
+                // 2. Log du type retourné, même en cas de succès
+                self.log("    Image loadItem returned: type=\(data.map { String(describing: Swift.type(of: $0)) } ?? "nil")")
+
+                // ---- Cas 1 : file URL (typique pour une photo locale) ----
+                if let rawURL = data as? URL, rawURL.isFileURL {
+                    let rawExists = FileManager.default.fileExists(atPath: rawURL.path)
+                    self.log("    Image is file URL: \(rawURL.path) — exists=\(rawExists)")
+                    // Bug Photos observé : pour un JPEG, `public.image`/
+                    // `public.jpeg` renvoie un chemin avec l'extension
+                    // `.jpg` alors que le fichier réellement exporté a
+                    // l'extension `.jpeg` (ou inversement). Si le path
+                    // tel quel n'existe pas, on cherche dans le dossier
+                    // parent un fichier avec le même basename (case-
+                    // insensitive) — ça rattrape `.jpg` ↔ `.jpeg`, `.heic`
+                    // ↔ `.heif`, et autres variations de casse.
+                    let imageURL: URL
+                    if rawExists {
+                        imageURL = rawURL
+                    } else if let resolved = self.resolveExistingFileURL(rawURL) {
+                        self.log("    🔧 Resolved actual file: \(resolved.lastPathComponent) (extension mismatch from Photos)")
+                        imageURL = resolved
+                    } else {
+                        imageURL = rawURL
                     }
-                    return (mod, Self.readGPS(from: imageURL))
-                }()
-                guard let copied = self?.copyFileToAppGroup(originalURL: imageURL) else {
-                    self?.log("⚠️ Échec copie photo")
+                    let (srcModDate, gps): (Double?, (lat: Double, lon: Double)?) = {
+                        let didStart = imageURL.startAccessingSecurityScopedResource()
+                        defer { if didStart { imageURL.stopAccessingSecurityScopedResource() } }
+                        var mod: Double? = nil
+                        if let attrs = try? FileManager.default.attributesOfItem(atPath: imageURL.path),
+                           let d = attrs[.modificationDate] as? Date {
+                            mod = d.timeIntervalSince1970
+                        }
+                        return (mod, Self.readGPS(from: imageURL))
+                    }()
+                    guard let copied = self.copyFileToAppGroup(originalURL: imageURL) else {
+                        self.log("⚠️ Échec copie photo (file URL path)")
+                        onDone(false); return
+                    }
+                    let title = (pageTitle?.isEmpty == false) ? pageTitle : imageURL.lastPathComponent
+                    self.save(urlString: copied.absoluteString,
+                              sourceApp: sourceApp ?? "Photos",
+                              pageTitle: title,
+                              kind: "photo",
+                              modifiedAt: srcModDate,
+                              latitude: gps?.lat,
+                              longitude: gps?.lon)
+                    onDone(true)
+                    return
+                }
+
+                // ---- Cas 2 : URL non-file (ex. ph://, https://, assets-library://) ----
+                if let url = data as? URL {
+                    self.log("⚠️ Image loadItem returned non-file URL: scheme=\(url.scheme ?? "nil") host=\(url.host ?? "nil") path=\(url.path)")
                     onDone(false); return
                 }
-                let title = (pageTitle?.isEmpty == false) ? pageTitle : imageURL.lastPathComponent
-                self?.save(urlString: copied.absoluteString,
-                           sourceApp: sourceApp ?? "Photos",
-                           pageTitle: title,
-                           kind: "photo",
-                           modifiedAt: srcModDate,
-                           latitude: gps?.lat,
-                           longitude: gps?.lon)
-                onDone(true)
+
+                // ---- Cas 3 : Data brut (ex. PNG/JPEG en mémoire) ----
+                if let imgData = data as? Data {
+                    self.log("    Image loadItem returned raw Data: bytes=\(imgData.count)")
+                    if let dest = self.writeImageDataToAppGroup(imgData, suggestedName: attachment.suggestedName) {
+                        let title = (pageTitle?.isEmpty == false) ? pageTitle : dest.lastPathComponent
+                        self.save(urlString: dest.absoluteString,
+                                  sourceApp: sourceApp ?? "Photos",
+                                  pageTitle: title,
+                                  kind: "photo",
+                                  modifiedAt: Date().timeIntervalSince1970)
+                        onDone(true)
+                    } else {
+                        self.log("⚠️ Échec écriture image Data → App Group")
+                        onDone(false)
+                    }
+                    return
+                }
+
+                // ---- Cas 4 : UIImage en mémoire ----
+                if let image = data as? UIImage {
+                    self.log("    Image loadItem returned UIImage: size=\(image.size) scale=\(image.scale)")
+                    if let jpeg = image.jpegData(compressionQuality: 0.9),
+                       let dest = self.writeImageDataToAppGroup(jpeg, suggestedName: attachment.suggestedName) {
+                        let title = (pageTitle?.isEmpty == false) ? pageTitle : dest.lastPathComponent
+                        self.save(urlString: dest.absoluteString,
+                                  sourceApp: sourceApp ?? "Photos",
+                                  pageTitle: title,
+                                  kind: "photo",
+                                  modifiedAt: Date().timeIntervalSince1970)
+                        onDone(true)
+                    } else {
+                        self.log("⚠️ Échec encodage/écriture UIImage → App Group")
+                        onDone(false)
+                    }
+                    return
+                }
+
+                // ---- Cas 5 : tout le reste (nil, type inconnu) ----
+                self.log("⚠️ Image loadItem: type inconnu / nil — abandon")
+                onDone(false)
             }
             return
         }
@@ -1127,6 +1206,85 @@ class ShareViewController: UIViewController {
     /// l'extension et puisse être rouvert plus tard par l'app principale.
     /// Le nom de destination est préfixé d'un timestamp pour éviter les
     /// collisions tout en préservant l'extension d'origine.
+    /// Si `url` pointe sur un fichier qui n'existe pas tel quel,
+    /// essaie une liste d'extensions alternatives connues pour le
+    /// même basename. Sert à contourner un bug de l'app Photos qui,
+    /// pour certains JPEG, renvoie un chemin `.jpg` alors que le
+    /// fichier exporté sur disque est en `.jpeg` (et variations
+    /// similaires pour HEIC/HEIF/PNG).
+    ///
+    /// Approche par probing (et NON par listing de dossier) : on
+    /// construit chaque alternative et on appelle `fileExists(atPath:)`.
+    /// `fileExists` est une simple stat() — pas de contrainte de
+    /// security-scoped resource, contrairement à `contentsOfDirectory`
+    /// qui peut échouer silencieusement quand on tape dans le container
+    /// d'une autre app (cas Photos).
+    private func resolveExistingFileURL(_ url: URL) -> URL? {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: url.path) { return url }
+        let alternates: [String: [String]] = [
+            "jpg":  ["jpeg", "JPG", "JPEG"],
+            "jpeg": ["jpg", "JPG", "JPEG"],
+            "JPG":  ["jpg", "jpeg", "JPEG"],
+            "JPEG": ["jpg", "jpeg", "JPG"],
+            "heic": ["heif", "HEIC", "HEIF"],
+            "heif": ["heic", "HEIC", "HEIF"],
+            "HEIC": ["heic", "heif", "HEIF"],
+            "HEIF": ["heic", "heif", "HEIC"],
+            "png":  ["PNG"],
+            "PNG":  ["png"],
+            "tif":  ["tiff", "TIF", "TIFF"],
+            "tiff": ["tif", "TIF", "TIFF"],
+            "gif":  ["GIF"],
+            "webp": ["WEBP"],
+        ]
+        let ext = url.pathExtension
+        let base = url.deletingPathExtension()
+        let candidates = alternates[ext] ?? []
+        log("    resolveExistingFileURL: trying alternates for ext=\(ext) → \(candidates)")
+        for newExt in candidates {
+            let alt = base.appendingPathExtension(newExt)
+            if fm.fileExists(atPath: alt.path) {
+                log("    resolveExistingFileURL: HIT \(alt.lastPathComponent)")
+                return alt
+            }
+        }
+        log("    resolveExistingFileURL: no alternate found")
+        return nil
+    }
+
+    /// Écrit un blob d'image (PNG/JPEG/HEIC) dans le container App Group
+    /// et renvoie l'URL de destination. Utilisé en fallback quand
+    /// `loadItem(forTypeIdentifier:)` renvoie un `Data` ou un `UIImage`
+    /// au lieu d'une file URL (cas observé sur certaines photos
+    /// partagées depuis l'app Photos selon le format / la source).
+    private func writeImageDataToAppGroup(_ data: Data, suggestedName: String?) -> URL? {
+        guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
+            log("❌ writeImageDataToAppGroup: containerURL introuvable")
+            return nil
+        }
+        let dir = containerURL.appendingPathComponent("SharedFiles", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        } catch {
+            log("❌ writeImageDataToAppGroup: createDirectory échec: \(error.localizedDescription)")
+            return nil
+        }
+        let ts = Int(Date().timeIntervalSince1970 * 1000)
+        let base = (suggestedName?.isEmpty == false) ? suggestedName! : "image.jpg"
+        // S'assure que le nom a une extension ; JPEG par défaut.
+        let nameWithExt = base.contains(".") ? base : "\(base).jpg"
+        let dest = dir.appendingPathComponent("\(ts)_\(nameWithExt)")
+        do {
+            try data.write(to: dest, options: .atomic)
+            log("    writeImageDataToAppGroup ✅ \(dest.lastPathComponent) (\(data.count) bytes)")
+            return dest
+        } catch {
+            log("❌ writeImageDataToAppGroup: write échec: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     private func copyFileToAppGroup(originalURL: URL) -> URL? {
         guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
             log("❌ copyFileToAppGroup: containerURL introuvable")

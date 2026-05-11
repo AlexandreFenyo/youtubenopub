@@ -94,6 +94,15 @@ struct SharedItem: Codable, Identifiable, Hashable {
     /// afficher un avertissement dans la ligne et à permettre à
     /// l'utilisateur de retenter via le menu contextuel.
     var aiFailed: Bool?
+    /// Vrai si l'utilisateur a verrouillé la preview de cet item
+    /// (uniquement pour les URLs). Quand verrouillée :
+    ///   - `triggerPendingPreviews` saute l'item (pas d'auto-régénération),
+    ///   - `regeneratePreview*` refuse de re-générer,
+    ///   - `clearPreviewsForCurrent` saute l'item,
+    ///   - le pipeline de pull-to-refresh / « Refresh previews and URL
+    ///     dates » ignore aussi cet item.
+    /// Un cadenas est dessiné en surimpression sur la vignette.
+    var previewLocked: Bool?
 
     var effectiveKind: String {
         if let k = kind { return k }
@@ -1402,6 +1411,20 @@ struct ContentView: View {
             Toggle(isOn: $autoCropMonochromePreviews) {
                 Label("Auto-crop URL previews", systemImage: "viewfinder")
             }
+            if hasUnlockedURLInCurrent {
+                Button {
+                    lockPreviewsForCurrent()
+                } label: {
+                    Label("Lock previews of these URLs", systemImage: "lock")
+                }
+            }
+            if hasLockedURLInCurrent {
+                Button {
+                    unlockPreviewsForCurrent()
+                } label: {
+                    Label("Unlock previews of these URLs", systemImage: "lock.open")
+                }
+            }
             Toggle(isOn: $debugLogsEnabled) {
                 Label("Enable Debug Logs", systemImage: "ladybug")
             }
@@ -1743,11 +1766,28 @@ struct ContentView: View {
                     Label("Reset AI call limit", systemImage: "arrow.counterclockwise")
                 }
             }
+            // Verrouillage de la preview, réservé aux URLs (pour les
+            // autres types, la vignette est triviale à régénérer et
+            // n'a pas besoin d'être protégée). Affiche UNIQUEMENT
+            // l'action utile : « Lock » si non verrouillée, sinon
+            // « Unlock ».
+            if item.effectiveKind == "url" {
+                Button {
+                    togglePreviewLock(for: item)
+                } label: {
+                    if item.previewLocked == true {
+                        Label("Unlock preview", systemImage: "lock.open")
+                    } else {
+                        Label("Lock preview", systemImage: "lock")
+                    }
+                }
+            }
             // « Regénérer la vignette » au sens large : générer s'il n'y
             // en a pas encore, regénérer s'il y en a déjà une. Toujours
             // proposé pour les types qui supportent une vignette
-            // (canRegeneratePreview = pas audio, pas texte).
-            if canRegeneratePreview(item) {
+            // (canRegeneratePreview = pas audio, pas texte). Désactivé
+            // quand la preview est verrouillée.
+            if canRegeneratePreview(item) && item.previewLocked != true {
                 Button {
                     regeneratePreview(for: item)
                 } label: {
@@ -1889,11 +1929,20 @@ struct ContentView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     if debugLogsEnabled {
-                        Button("Clear Logs") {
-                            clearDebugLogs()
-                            loadDebugLogs()
+                        HStack(spacing: 8) {
+                            Button("Clear Logs") {
+                                clearDebugLogs()
+                                loadDebugLogs()
+                            }
+                            .buttonStyle(.bordered)
+                            Button {
+                                UIPasteboard.general.string = debugLogs
+                            } label: {
+                                Label("Copy", systemImage: "doc.on.doc")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(debugLogs.isEmpty)
                         }
-                        .buttonStyle(.bordered)
                     }
                     Divider()
                     Group {
@@ -1904,7 +1953,16 @@ struct ContentView: View {
                                 Text("Debug logs are disabled.")
                             }
                         } else {
-                            Text(debugLogs)
+                            // `TextEditor` (lecture seule via .disabled
+                            // sur le binding) permet la sélection
+                            // native iOS + le menu Copy. Hauteur calée
+                            // sur le contenu via .scrollDisabled pour
+                            // garder le scroll global de la ScrollView
+                            // englobante.
+                            TextEditor(text: .constant(debugLogs))
+                                .scrollDisabled(true)
+                                .scrollContentBackground(.hidden)
+                                .frame(minHeight: 200)
                         }
                     }
                     .font(.system(.caption, design: .monospaced))
@@ -2162,6 +2220,9 @@ struct ContentView: View {
     /// date Last-Modified — utile pour tous les types y compris les
     /// URLs quand l'utilisateur veut juste rafraîchir le visuel.
     private func regeneratePreviewOnly(for item: SharedItem) {
+        // Si la preview de l'item est verrouillée, on refuse — c'est
+        // l'objet même du verrou.
+        if item.previewLocked == true { return }
         // On NE lève PAS le drapeau global `autoTriggersPaused` : sinon
         // tous les autres items éligibles se mettraient à traiter
         // aussi au prochain tick. À la place, on lance explicitement
@@ -2176,6 +2237,8 @@ struct ContentView: View {
     }
 
     private func regeneratePreview(for item: SharedItem) {
+        // Preview verrouillée : refus catégorique (cf. previewLocked).
+        if item.previewLocked == true { return }
         // Pas de levée globale de `autoTriggersPaused` — on lance
         // explicitement les tâches pour CET item uniquement.
         removePreviewIfAny(item)
@@ -2250,7 +2313,10 @@ struct ContentView: View {
     /// menu contextuel ou en bulk via le pull-to-refresh / menu …
     /// → « Refresh previews and URL dates ».
     private func clearPreviewsForCurrent() {
-        let snapshot = currentItems.filter { $0.effectiveKind == "url" }
+        // Les items verrouillés sont explicitement préservés : c'est
+        // tout l'intérêt du verrou (cf. previewLocked).
+        let snapshot = currentItems.filter { $0.effectiveKind == "url"
+                                             && $0.previewLocked != true }
         let ids = Set(snapshot.map(\.id))
         guard !ids.isEmpty else { return }
         // Annule les éventuelles générations d'aperçus en vol pour ces
@@ -2264,6 +2330,59 @@ struct ContentView: View {
         }
         items = newItems
         saveItems()
+    }
+
+    /// Verrouille la vignette de tous les items URL actuellement
+    /// affichés : leur `previewLocked` passe à `true`, et toute
+    /// régénération / effacement ultérieure les laissera intactes
+    /// jusqu'à déverrouillage.
+    private func lockPreviewsForCurrent() {
+        let ids = Set(currentItems.filter { $0.effectiveKind == "url" }.map(\.id))
+        guard !ids.isEmpty else { return }
+        var newItems = items
+        var changed = false
+        for idx in newItems.indices where ids.contains(newItems[idx].id)
+                                          && newItems[idx].previewLocked != true {
+            newItems[idx].previewLocked = true
+            changed = true
+        }
+        if changed { items = newItems; saveItems() }
+    }
+
+    /// Supprime le verrouillage pour tous les items URL actuellement
+    /// affichés. Leurs previews redeviennent éligibles à régénération
+    /// (auto via `triggerPendingPreviews`, ou manuelle).
+    private func unlockPreviewsForCurrent() {
+        let ids = Set(currentItems.filter { $0.effectiveKind == "url" }.map(\.id))
+        guard !ids.isEmpty else { return }
+        var newItems = items
+        var changed = false
+        for idx in newItems.indices where ids.contains(newItems[idx].id)
+                                          && newItems[idx].previewLocked == true {
+            newItems[idx].previewLocked = nil
+            changed = true
+        }
+        if changed { items = newItems; saveItems() }
+    }
+
+    /// Bascule le verrouillage de la preview d'un item (utilisé depuis
+    /// le menu contextuel de la ligne).
+    private func togglePreviewLock(for item: SharedItem) {
+        guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[idx].previewLocked = (items[idx].previewLocked == true) ? nil : true
+        saveItems()
+    }
+
+    /// Indique s'il existe au moins un item URL non verrouillé parmi
+    /// ceux affichés (pour conditionner l'entrée de menu « Lock »).
+    private var hasUnlockedURLInCurrent: Bool {
+        currentItems.contains { $0.effectiveKind == "url" && $0.previewLocked != true }
+    }
+
+    /// Indique s'il existe au moins un item URL verrouillé parmi ceux
+    /// affichés (pour conditionner l'entrée de menu « Unlock »).
+    private var hasLockedURLInCurrent: Bool {
+        currentItems.contains { $0.effectiveKind == "url" && $0.previewLocked == true }
     }
 
     /// Efface les textes générés par l'IA (titre IA + drapeaux
@@ -2695,6 +2814,7 @@ struct ContentView: View {
     private func triggerPendingPreviews() {
         guard !autoTriggersPaused else { return }
         for item in items where item.previewPath == nil
+                                && item.previewLocked != true
                                 && !generatingPreviewIDs.contains(item.id) {
             startPreviewGeneration(for: item)
         }
@@ -3151,7 +3271,8 @@ struct ContentView: View {
                     translationDone: item.translationDone,
                     ocrFailed: item.ocrFailed,
                     titleFetchFailed: item.titleFetchFailed,
-                    aiFailed: item.aiFailed
+                    aiFailed: item.aiFailed,
+                    previewLocked: item.previewLocked
                 )
                 result[i] = copy
             }
@@ -3900,6 +4021,7 @@ struct ContentView: View {
         var changed = false
         for idx in newItems.indices
             where newItems[idx].previewPath == ""
+                && newItems[idx].previewLocked != true
                 && visibleIDs.contains(newItems[idx].id) {
             newItems[idx].previewPath = nil
             changed = true
@@ -4647,9 +4769,9 @@ enum PreviewGenerator {
         let image: UIImage?
         switch kind {
         case "photo":
-            image = renderPhoto(urlString: item.url)
+            image = await renderPhoto(urlString: item.url)
         case "video":
-            image = renderVideo(urlString: item.url)
+            image = await renderVideo(urlString: item.url)
         case "audio":
             // Si la transcription speech-to-text est terminée et a
             // produit un texte, on rend une vignette type « page »
@@ -4658,12 +4780,12 @@ enum PreviewGenerator {
             // waveform.
             if item.aiDescribed == true,
                let title = item.title, !title.isEmpty {
-                image = renderText(title)
+                image = await renderText(title)
             } else {
-                image = renderSymbol("waveform", color: .systemTeal)
+                image = await renderSymbol("waveform", color: .systemTeal)
             }
         case "text":
-            image = renderText(item.url)
+            image = await renderText(item.url)
         case "file":
             // QuickLook fournit nativement une miniature de la 1ʳᵉ
             // page pour les types qu'il sait afficher (PDF, Office,
@@ -4671,9 +4793,9 @@ enum PreviewGenerator {
             // corrompu, timeout), on retombe sur l'icône doc.fill +
             // nom de fichier.
             if let qlImage = await renderFileQuickLook(urlString: item.url) {
-                image = scaleAspectFit(image: qlImage)
+                image = await scaleAspectFit(image: qlImage)
             } else {
-                image = renderFile(urlString: item.url, title: item.title)
+                image = await renderFile(urlString: item.url, title: item.title)
             }
         default: // "url"
             let raw = item.originalURL ?? item.url
@@ -4682,25 +4804,25 @@ enum PreviewGenerator {
             // cookies, pas de bannière de consentement, pas d'erreur 153
             // sur les vidéos qui bloquent l'embed.
             if let ytThumb = await fetchYouTubeThumbnail(urlString: raw) {
-                image = scaleAspectFit(image: ytThumb)
+                image = await scaleAspectFit(image: ytThumb)
             } else if let snap = await renderWebPage(urlString: raw) {
                 image = snap
             } else {
-                image = renderURLPlaceholder(title: item.title, url: raw)
+                image = await renderURLPlaceholder(title: item.title, url: raw)
             }
         }
         guard let img = image else { return nil }
         return savePNG(img, id: item.id)
     }
 
-    private static func renderPhoto(urlString: String) -> UIImage? {
+    private static func renderPhoto(urlString: String) async -> UIImage? {
         guard let url = URL(string: urlString), url.isFileURL,
               let data = try? Data(contentsOf: url),
               let img = UIImage(data: data) else { return nil }
-        return scaleAspectFit(image: img)
+        return await scaleAspectFit(image: img)
     }
 
-    private static func renderVideo(urlString: String) -> UIImage? {
+    private static func renderVideo(urlString: String) async -> UIImage? {
         guard let url = URL(string: urlString), url.isFileURL else { return nil }
         let asset = AVURLAsset(url: url)
         let gen = AVAssetImageGenerator(asset: asset)
@@ -4708,14 +4830,14 @@ enum PreviewGenerator {
         gen.requestedTimeToleranceBefore = .zero
         gen.requestedTimeToleranceAfter = CMTime(seconds: 1, preferredTimescale: 600)
         guard let cg = try? gen.copyCGImage(at: .zero, actualTime: nil) else { return nil }
-        return scaleAspectFit(image: UIImage(cgImage: cg))
+        return await scaleAspectFit(image: UIImage(cgImage: cg))
     }
 
-    private static func renderSymbol(_ systemName: String, color: UIColor) -> UIImage {
+    private static func renderSymbol(_ systemName: String, color: UIColor) async -> UIImage {
         let cfg = UIImage.SymbolConfiguration(pointSize: 96, weight: .regular)
         let symbol = UIImage(systemName: systemName, withConfiguration: cfg)?
             .withTintColor(color, renderingMode: .alwaysOriginal)
-        return blankCanvas { ctx in
+        return await blankCanvas { ctx in
             if let s = symbol {
                 let ratio = min(140 / s.size.width, 140 / s.size.height)
                 let w = s.size.width * ratio
@@ -4733,8 +4855,8 @@ enum PreviewGenerator {
     /// d'aperçus). Le texte s'écoule en multi-ligne via
     /// `.usesLineFragmentOrigin` et est naturellement clippé en bas si
     /// trop long, comme un screenshot du haut d'une page web.
-    private static func renderText(_ raw: String) -> UIImage {
-        return blankCanvas { _ in
+    private static func renderText(_ raw: String) async -> UIImage {
+        return await blankCanvas { _ in
             UIColor.white.setFill()
             UIRectFill(CGRect(origin: .zero, size: size))
 
@@ -4782,12 +4904,12 @@ enum PreviewGenerator {
         }
     }
 
-    private static func renderFile(urlString: String, title: String?) -> UIImage {
+    private static func renderFile(urlString: String, title: String?) async -> UIImage {
         let cfg = UIImage.SymbolConfiguration(pointSize: 90, weight: .regular)
         let icon = UIImage(systemName: "doc.fill", withConfiguration: cfg)?
             .withTintColor(.systemBlue, renderingMode: .alwaysOriginal)
         let label = title ?? URL(string: urlString)?.lastPathComponent ?? "file"
-        return blankCanvas { _ in
+        return await blankCanvas { _ in
             if let icon = icon {
                 let r = CGRect(x: (size.width - 90) / 2, y: 30, width: 90, height: 110)
                 icon.draw(in: r)
@@ -4808,13 +4930,13 @@ enum PreviewGenerator {
         }
     }
 
-    private static func renderURLPlaceholder(title: String?, url: String) -> UIImage {
+    private static func renderURLPlaceholder(title: String?, url: String) async -> UIImage {
         let host = URL(string: url)?.host ?? url
         let main = title ?? host
         let cfg = UIImage.SymbolConfiguration(pointSize: 70, weight: .regular)
         let globe = UIImage(systemName: "globe", withConfiguration: cfg)?
             .withTintColor(.systemGreen.withAlphaComponent(0.35), renderingMode: .alwaysOriginal)
-        return blankCanvas { _ in
+        return await blankCanvas { _ in
             if let g = globe {
                 let r = CGRect(x: size.width - 86, y: size.height - 86, width: 70, height: 70)
                 g.draw(in: r)
@@ -5025,7 +5147,7 @@ enum PreviewGenerator {
 
         guard let big = bigSnapshot else { return nil }
         let prepared = autoCropEnabled ? cropToContentBoundingBox(big) : big
-        return scaleAspectFit(image: prepared)
+        return await scaleAspectFit(image: prepared)
     }
 
     /// Lance une opération à callback (`takeSnapshot` etc.) avec un
@@ -5161,14 +5283,14 @@ enum PreviewGenerator {
         return nil
     }
 
-    private static func scaleAspectFit(image: UIImage) -> UIImage {
+    private static func scaleAspectFit(image: UIImage) async -> UIImage {
         let imgSize = image.size
-        guard imgSize.width > 0, imgSize.height > 0 else { return blankCanvas { _ in } }
+        guard imgSize.width > 0, imgSize.height > 0 else { return await blankCanvas { _ in } }
         let ratio = min(size.width / imgSize.width, size.height / imgSize.height)
         let drawSize = CGSize(width: imgSize.width * ratio, height: imgSize.height * ratio)
         let origin = CGPoint(x: (size.width - drawSize.width) / 2,
                              y: (size.height - drawSize.height) / 2)
-        return blankCanvas { ctx in
+        return await blankCanvas { ctx in
             // Interpolation haute qualité (Lanczos-like) pour éviter le
             // crénelage / pixelisation lors du downscale d'une capture HD.
             ctx.interpolationQuality = .high
@@ -5397,26 +5519,26 @@ enum PreviewGenerator {
         return UIImage(cgImage: cropped, scale: normalized.scale, orientation: .up)
     }
 
-    /// Tous les rendus passent par cette fonction. On hop sur le main
-    /// thread via `DispatchQueue.main.sync` quand on est en arrière-plan,
-    /// car les APIs UIKit appelées dans la closure `draw`
+    /// Tous les rendus passent par cette fonction. Isolée `@MainActor`
+    /// parce que les APIs UIKit appelées dans la closure `draw`
     /// (`NSString.draw(with:)`, `UIImage(systemName:)`,
     /// `UIImage.draw(in:)`) ont en pratique une thread-affinity main
-    /// thread sur iOS 17/18 — appeler depuis une `Task.detached`
-    /// pouvait corrompre l'état interne UIKit et crasher dans
-    /// `renderer.image` (EXC_BAD_ACCESS). Le `Task.detached` continue
-    /// de tourner en background pour le reste (extraction frame vidéo,
-    /// fetch HTTP, etc.) ; seule la phase finale de rendu est ramenée
-    /// sur le main thread.
+    /// thread sur iOS 17/18 — appeler depuis une `Task.detached` non
+    /// hoppée pouvait corrompre l'état interne UIKit et crasher dans
+    /// `renderer.image` (EXC_BAD_ACCESS).
+    ///
+    /// Auparavant on faisait `DispatchQueue.main.sync` ici, mais Swift
+    /// Concurrency émet un `unsafeForcedSync` quand on appelle ça depuis
+    /// un contexte async (cooperative thread pool) — risque de blocage
+    /// du pool, crash visible sur iPadOS 18. La bascule `@MainActor` +
+    /// `await` côté appelants règle le problème : la runtime hop sur le
+    /// main actor sans bloquer le worker thread.
+    @MainActor
     private static func blankCanvas(_ draw: (CGContext) -> Void) -> UIImage {
-        if Thread.isMainThread {
-            return renderImage(draw: draw)
-        }
-        return DispatchQueue.main.sync {
-            renderImage(draw: draw)
-        }
+        renderImage(draw: draw)
     }
 
+    @MainActor
     private static func renderImage(draw: (CGContext) -> Void) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.opaque = false
@@ -5625,6 +5747,16 @@ struct RowThumbnail: View {
                 Color(.tertiarySystemFill)
             }
         }
+        .overlay(alignment: .topLeading) {
+            if item.previewLocked == true {
+                Image(systemName: "lock.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.white)
+                    .padding(3)
+                    .background(.black.opacity(0.55), in: Circle())
+                    .padding(3)
+            }
+        }
         .onAppear { loadIfNeeded() }
         .onChange(of: item.previewPath) { _, _ in loadIfNeeded() }
     }
@@ -5669,6 +5801,16 @@ private struct PreviewTile: View {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
             )
+            .overlay(alignment: .topLeading) {
+                if item.previewLocked == true {
+                    Image(systemName: "lock.fill")
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                        .padding(5)
+                        .background(.black.opacity(0.55), in: Circle())
+                        .padding(6)
+                }
+            }
             Text(item.title ?? URL(string: item.url)?.lastPathComponent ?? item.url)
                 .font(.caption2)
                 .lineLimit(1)
