@@ -38,6 +38,21 @@
     <string>Captured</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Captured transcribes the first seconds of shared audio clips on-device to use as their title.</string>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>fr.fenyo.sharemanager.itemdrag</string>
+            <key>UTTypeDescription</key>
+            <string>Captured drag payload</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict/>
+        </dict>
+    </array>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UISupportedInterfaceOrientations</key>

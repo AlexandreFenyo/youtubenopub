@@ -3048,19 +3048,28 @@ struct ContentView: View {
         guard let data = loadImageDataForAnalysis(urlString: urlString),
               let cgImage = UIImage(data: data)?.cgImage else { return nil }
         return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
-            let request = VNRecognizeTextRequest { req, _ in
-                guard let observations = req.results as? [VNRecognizedTextObservation] else {
-                    continuation.resume(returning: nil); return
+            // On dispatche le `perform([request])` synchrone Vision sur
+            // un thread .utility explicite. Sans ça, quand la Task
+            // appelante est suspended et qu'un autre code à QoS
+            // user-interactive attend indirectement notre continuation,
+            // Swift Concurrency peut tenter une escalade de priorité —
+            // Vision tournant en interne sur des threads utility, le
+            // runtime émet alors un warning « priority inversion ».
+            DispatchQueue.global(qos: .utility).async {
+                let request = VNRecognizeTextRequest { req, _ in
+                    guard let observations = req.results as? [VNRecognizedTextObservation] else {
+                        continuation.resume(returning: nil); return
+                    }
+                    let lines = observations.compactMap { $0.topCandidates(1).first?.string }
+                    continuation.resume(returning: lines.isEmpty ? nil : lines.joined(separator: "\n"))
                 }
-                let lines = observations.compactMap { $0.topCandidates(1).first?.string }
-                continuation.resume(returning: lines.isEmpty ? nil : lines.joined(separator: "\n"))
-            }
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            do {
-                try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-            } catch {
-                continuation.resume(returning: nil)
+                request.recognitionLevel = .accurate
+                request.usesLanguageCorrection = true
+                do {
+                    try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+                } catch {
+                    continuation.resume(returning: nil)
+                }
             }
         }
     }
@@ -3559,34 +3568,39 @@ struct ContentView: View {
     static func describeViaApple(imageData: Data) async -> String? {
         guard let cgImage = UIImage(data: imageData)?.cgImage else { return nil }
         return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
-            let request = VNClassifyImageRequest { req, error in
-                if let error {
-                    print("Vision error: \(error.localizedDescription)")
-                    continuation.resume(returning: nil)
-                    return
+            // Idem `recognizeText` : on isole le `perform` synchrone
+            // sur une queue utility explicite pour échapper à toute
+            // escalade de priorité Swift Concurrency.
+            DispatchQueue.global(qos: .utility).async {
+                let request = VNClassifyImageRequest { req, error in
+                    if let error {
+                        print("Vision error: \(error.localizedDescription)")
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    guard let observations = req.results as? [VNClassificationObservation] else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    // Seuil de confiance + top 15 labels max. On garde l'ordre
+                    // natif (déjà trié par confiance décroissante).
+                    let labels = observations
+                        .filter { $0.confidence > 0.3 }
+                        .prefix(15)
+                        .map { $0.identifier.replacingOccurrences(of: "_", with: " ") }
+                    if labels.isEmpty {
+                        continuation.resume(returning: nil)
+                    } else {
+                        continuation.resume(returning: labels.joined(separator: ", "))
+                    }
                 }
-                guard let observations = req.results as? [VNClassificationObservation] else {
+                let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+                do {
+                    try handler.perform([request])
+                } catch {
+                    print("Vision perform error: \(error.localizedDescription)")
                     continuation.resume(returning: nil)
-                    return
                 }
-                // Seuil de confiance + top 15 labels max. On garde l'ordre
-                // natif (déjà trié par confiance décroissante).
-                let labels = observations
-                    .filter { $0.confidence > 0.3 }
-                    .prefix(15)
-                    .map { $0.identifier.replacingOccurrences(of: "_", with: " ") }
-                if labels.isEmpty {
-                    continuation.resume(returning: nil)
-                } else {
-                    continuation.resume(returning: labels.joined(separator: ", "))
-                }
-            }
-            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            do {
-                try handler.perform([request])
-            } catch {
-                print("Vision perform error: \(error.localizedDescription)")
-                continuation.resume(returning: nil)
             }
         }
     }
