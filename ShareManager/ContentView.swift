@@ -264,6 +264,28 @@ enum StoreKeys {
     /// Identifiant interne du folder par défaut. Son nom d'affichage
     /// est localisé via `displayName(forFolder:)`.
     static let defaultFolder = "Default"
+    /// Token d'opaque server-side CloudKit pour `CKFetchDatabaseChangesOperation` :
+    /// permet de ne tirer que le delta depuis la dernière fetch.
+    static let cloudKitDBChangeToken = "cloudKitDBChangeToken"
+}
+
+/// Représentation locale d'un dossier. Conserve son nom (qui sert
+/// d'identifiant utilisateur ET d'identifiant CloudKit), un drapeau
+/// indiquant si l'utilisateur a activé la synchronisation iCloud pour
+/// ce dossier, et un index numérique préservant l'ordre du
+/// drag-to-reorder de la sidebar. `iCloudSynced` est false par défaut :
+/// un dossier reste local-only tant que l'utilisateur ne demande pas
+/// explicitement la sync via le menu contextuel.
+struct Folder: Codable, Hashable, Identifiable {
+    var name: String
+    var iCloudSynced: Bool
+    var sortIndex: Double
+    var id: String { name }
+
+    /// Helper pour le `Default` system folder : jamais synced, sortIndex 0.
+    static func systemDefault() -> Folder {
+        Folder(name: StoreKeys.defaultFolder, iCloudSynced: false, sortIndex: 0)
+    }
 }
 
 /// Renvoie le nom à afficher pour un folder. Le folder système « Default »
@@ -287,7 +309,7 @@ func colorSchemeName(_ value: Int) -> String {
 
 struct ContentView: View {
     @State private var items: [SharedItem] = []
-    @State private var folders: [String] = [StoreKeys.defaultFolder]
+    @State private var folders: [Folder] = [Folder.systemDefault()]
     @State private var selectedFolder: String? = StoreKeys.defaultFolder
 
     @State private var safariFullScreenURL: URL? = nil
@@ -910,21 +932,34 @@ struct ContentView: View {
                 }
             }
             Section("Folders") {
-                ForEach(folders, id: \.self) { folder in
+                ForEach(folders) { folder in
                     HStack {
-                        Image(systemName: folder == StoreKeys.defaultFolder ? "tray.fill" : "folder")
-                        Text(displayName(forFolder: folder))
+                        Image(systemName: folderRowIcon(for: folder))
+                        Text(displayName(forFolder: folder.name))
                         Spacer()
-                        Text("\(items.filter { $0.folder == folder }.count)")
+                        Text("\(items.filter { $0.folder == folder.name }.count)")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .monospacedDigit()
                     }
-                    .tag(folder)
+                    .tag(folder.name)
                     .contextMenu {
-                        if folder != StoreKeys.defaultFolder {
+                        if folder.name != StoreKeys.defaultFolder {
+                            if folder.iCloudSynced {
+                                Button {
+                                    stopICloudSync(forFolder: folder.name)
+                                } label: {
+                                    Label("Stop iCloud sync", systemImage: "icloud.slash")
+                                }
+                            } else {
+                                Button {
+                                    startICloudSync(forFolder: folder.name)
+                                } label: {
+                                    Label("Sync to iCloud", systemImage: "icloud.and.arrow.up")
+                                }
+                            }
                             Button(role: .destructive) {
-                                folderToDelete = folder
+                                folderToDelete = folder.name
                             } label: {
                                 Label("Delete Folder", systemImage: "trash")
                             }
@@ -937,7 +972,7 @@ struct ContentView: View {
                     .dropDestination(for: ItemDragPayload.self) { payloads, _ in
                         guard UIDevice.current.userInterfaceIdiom == .pad,
                               let payload = payloads.first else { return false }
-                        moveItemsToFolder(ids: payload.ids, to: folder)
+                        moveItemsToFolder(ids: payload.ids, to: folder.name)
                         return true
                     }
                 }
@@ -1103,12 +1138,12 @@ struct ContentView: View {
             ToolbarItemGroup(placement: .bottomBar) {
                 if !selection.isEmpty {
                     Menu {
-                        ForEach(folders, id: \.self) { folder in
+                        ForEach(folders) { folder in
                             Button {
-                                moveSelected(to: folder)
+                                moveSelected(to: folder.name)
                             } label: {
-                                Label(displayName(forFolder: folder),
-                                      systemImage: folder == StoreKeys.defaultFolder ? "tray" : "folder")
+                                Label(displayName(forFolder: folder.name),
+                                      systemImage: folderRowIcon(for: folder))
                             }
                         }
                     } label: {
@@ -1635,7 +1670,7 @@ struct ContentView: View {
                     }
                     if smartFolder != nil {
                         HStack(spacing: 4) {
-                            Image(systemName: item.folder == StoreKeys.defaultFolder ? "tray" : "folder")
+                            Image(systemName: folderRowIcon(forName: item.folder))
                                 .font(.caption2)
                             Text(displayName(forFolder: item.folder))
                                 .font(.caption2)
@@ -1746,12 +1781,13 @@ struct ContentView: View {
             shareLinkForItem(item)
             if folders.count > 1 {
                 Menu {
-                    ForEach(folders, id: \.self) { folder in
-                        if folder != item.folder {
+                    ForEach(folders) { folder in
+                        if folder.name != item.folder {
                             Button {
-                                moveItem(item, to: folder)
+                                moveItem(item, to: folder.name)
                             } label: {
-                                Label(displayName(forFolder: folder), systemImage: folder == StoreKeys.defaultFolder ? "tray" : "folder")
+                                Label(displayName(forFolder: folder.name),
+                                      systemImage: folderRowIcon(for: folder))
                             }
                         }
                     }
@@ -2105,19 +2141,44 @@ struct ContentView: View {
         WidgetReloadCoordinator.shared.schedule()
     }
 
+    /// Charge la liste des dossiers depuis `UserDefaults`. Gère deux
+    /// formats pour la rétro-compatibilité :
+    ///   1. Nouveau (`Data` encodant `[Folder]`) — depuis l'ajout de
+    ///      la sync iCloud par-dossier.
+    ///   2. Legacy (`[String]` simple) — utilisé avant l'ajout de
+    ///      `Folder`. Migré en `[Folder]` avec `iCloudSynced = false`.
     private func loadFolders() {
-        let list = defaults?.stringArray(forKey: StoreKeys.folders) ?? []
-        let sanitized = list.isEmpty ? [StoreKeys.defaultFolder] : list
-        let final = sanitized.contains(StoreKeys.defaultFolder) ? sanitized : [StoreKeys.defaultFolder] + sanitized
-        if final != folders { folders = final }
+        guard let defaults else { return }
+        var loaded: [Folder] = []
+        if let data = defaults.data(forKey: StoreKeys.folders),
+           let decoded = try? JSONDecoder().decode([Folder].self, from: data) {
+            loaded = decoded
+        } else if let legacy = defaults.stringArray(forKey: StoreKeys.folders) {
+            // Migration depuis l'ancien format [String].
+            loaded = legacy.enumerated().map { idx, name in
+                Folder(name: name, iCloudSynced: false, sortIndex: Double(idx))
+            }
+        }
+        // S'assure que `Default` est présent et figure en tête.
+        if !loaded.contains(where: { $0.name == StoreKeys.defaultFolder }) {
+            loaded.insert(Folder.systemDefault(), at: 0)
+        }
+        if loaded.isEmpty {
+            loaded = [Folder.systemDefault()]
+        }
+        if loaded != folders { folders = loaded }
     }
 
     private func saveFolders() {
-        defaults?.set(folders, forKey: StoreKeys.folders)
+        guard let defaults else { return }
+        if let data = try? JSONEncoder().encode(folders) {
+            defaults.set(data, forKey: StoreKeys.folders)
+        }
     }
 
     private func loadSelectedFolder() {
-        if let saved = defaults?.string(forKey: StoreKeys.selectedFolder), folders.contains(saved) {
+        if let saved = defaults?.string(forKey: StoreKeys.selectedFolder),
+           folders.contains(where: { $0.name == saved }) {
             selectedFolder = saved
         } else {
             selectedFolder = StoreKeys.defaultFolder
@@ -2131,8 +2192,9 @@ struct ContentView: View {
         newFolderName = ""
         guard !trimmed.isEmpty else { return }
         guard trimmed != StoreKeys.defaultFolder else { return }
-        guard !folders.contains(trimmed) else { return }
-        folders.append(trimmed)
+        guard !folders.contains(where: { $0.name == trimmed }) else { return }
+        let nextIndex = (folders.map(\.sortIndex).max() ?? 0) + 1
+        folders.append(Folder(name: trimmed, iCloudSynced: false, sortIndex: nextIndex))
         saveFolders()
         selectedFolder = trimmed
     }
@@ -2140,10 +2202,59 @@ struct ContentView: View {
     /// Réordonne la liste des folders. L'ordre est persisté dans
     /// `UserDefaults` (App Group) via `saveFolders()` et apparaît tel
     /// quel dans les sauvegardes (`BackupBundle.folders`), donc il est
-    /// restauré à l'identique lors d'un import.
+    /// restauré à l'identique lors d'un import. Met à jour aussi
+    /// `sortIndex` pour préserver l'ordre côté CloudKit.
     private func moveFolders(from source: IndexSet, to destination: Int) {
         folders.move(fromOffsets: source, toOffset: destination)
+        // Re-numérote `sortIndex` 0, 1, 2... pour refléter le nouvel ordre.
+        for i in folders.indices { folders[i].sortIndex = Double(i) }
         saveFolders()
+    }
+
+    /// Icône SF Symbol à afficher pour la ligne d'un dossier, selon son
+    /// statut iCloud. Le dossier « Default » (inbox) garde son icône
+    /// `tray.fill` historique. Les autres dossiers affichent `folder`
+    /// quand local-only, `icloud.fill` quand l'utilisateur a activé la
+    /// sync iCloud.
+    private func folderRowIcon(for folder: Folder) -> String {
+        if folder.name == StoreKeys.defaultFolder { return "tray.fill" }
+        return folder.iCloudSynced ? "icloud.fill" : "folder"
+    }
+
+    /// Variante par nom : utilisée par les rendus qui n'ont que le
+    /// nom à disposition (item.folder, badge dans une smart view, etc.).
+    private func folderRowIcon(forName name: String) -> String {
+        if name == StoreKeys.defaultFolder { return "tray.fill" }
+        let synced = folders.first(where: { $0.name == name })?.iCloudSynced ?? false
+        return synced ? "icloud.fill" : "folder"
+    }
+
+    // MARK: - iCloud sync (per-folder)
+
+    /// Active la sync iCloud pour un dossier donné. Met à jour le
+    /// drapeau local immédiatement (l'UI réagit), puis délègue à
+    /// `CloudSync` pour publier le folder record + tous ses items
+    /// vers la base privée. Le `Default` folder est exclu : il reste
+    /// toujours local-only.
+    private func startICloudSync(forFolder name: String) {
+        guard name != StoreKeys.defaultFolder else { return }
+        guard let idx = folders.firstIndex(where: { $0.name == name }) else { return }
+        guard !folders[idx].iCloudSynced else { return }
+        folders[idx].iCloudSynced = true
+        saveFolders()
+        // TODO: publier vers CloudKit via CloudSync.shared.startSync(folder, items)
+    }
+
+    /// Désactive la sync iCloud pour un dossier. Le record CloudKit
+    /// + ses items sont supprimés du cloud (cascade-delete côté Apple
+    /// via la `parent` reference). Les items restent en local.
+    private func stopICloudSync(forFolder name: String) {
+        guard name != StoreKeys.defaultFolder else { return }
+        guard let idx = folders.firstIndex(where: { $0.name == name }) else { return }
+        guard folders[idx].iCloudSynced else { return }
+        folders[idx].iCloudSynced = false
+        saveFolders()
+        // TODO: supprimer du cloud via CloudSync.shared.stopSync(folderName: name)
     }
 
     private func deleteFolder(_ name: String) {
@@ -2155,7 +2266,7 @@ struct ContentView: View {
             removePreviewIfAny($0)
         }
         items.removeAll { $0.folder == name }
-        folders.removeAll { $0 == name }
+        folders.removeAll { $0.name == name }
         saveItems()
         saveFolders()
         if selectedFolder == name {
@@ -2547,7 +2658,7 @@ struct ContentView: View {
         let targetFolder: String
         if smartFolder == nil,
            let sel = selectedFolder,
-           folders.contains(sel) {
+           folders.contains(where: { $0.name == sel }) {
             targetFolder = sel
         } else {
             targetFolder = StoreKeys.defaultFolder
@@ -2591,7 +2702,7 @@ struct ContentView: View {
     /// toute la sélection en mode Edit. Vide ensuite la sélection comme
     /// le fait `moveSelected(to:)`.
     private func moveItemsToFolder(ids: [String], to folder: String) {
-        guard folders.contains(folder) else { return }
+        guard folders.contains(where: { $0.name == folder }) else { return }
         let idSet = Set(ids)
         var changed = false
         for i in 0..<items.count where idSet.contains(items[i].id) && items[i].folder != folder {
@@ -3093,7 +3204,11 @@ struct ContentView: View {
                 simulateDateDelay: appDefaults.bool(forKey: "simulateDateDelay"),
                 selectedFolder: selectedFolder ?? StoreKeys.defaultFolder
             ),
-            folders: folders,
+            // Le format de backup garde les noms de dossier seuls
+            // (rétro-compat des sauvegardes pré-iCloud). Les drapeaux
+            // iCloud sont une décision PAR APPAREIL et ne se restaurent
+            // pas — à l'import, chaque dossier repart en local-only.
+            folders: folders.map(\.name),
             items: items,
             files: collectFileBlobs(),
             previews: collectPreviewBlobs()
@@ -3191,11 +3306,16 @@ struct ContentView: View {
             appDefaults.set(bundle.settings.describeImagesModel, forKey: "describeImagesModel")
             appDefaults.set(bundle.settings.simulateDateDelay, forKey: "simulateDateDelay")
 
-            var newFolders = bundle.folders
-            if !newFolders.contains(StoreKeys.defaultFolder) {
-                newFolders.insert(StoreKeys.defaultFolder, at: 0)
+            // Reconstruction de `[Folder]` depuis les noms du backup,
+            // tous remis en local-only (iCloudSynced = false). Default
+            // garanti en tête.
+            var newNames = bundle.folders
+            if !newNames.contains(StoreKeys.defaultFolder) {
+                newNames.insert(StoreKeys.defaultFolder, at: 0)
             }
-            folders = newFolders
+            folders = newNames.enumerated().map { idx, name in
+                Folder(name: name, iCloudSynced: false, sortIndex: Double(idx))
+            }
             saveFolders()
 
             items = restoreItems(bundle.items,
@@ -3205,7 +3325,7 @@ struct ContentView: View {
                                  regenerateIDs: false)
             saveItems()
 
-            if folders.contains(bundle.settings.selectedFolder) {
+            if folders.contains(where: { $0.name == bundle.settings.selectedFolder }) {
                 selectedFolder = bundle.settings.selectedFolder
             } else {
                 selectedFolder = StoreKeys.defaultFolder
@@ -3216,12 +3336,14 @@ struct ContentView: View {
 
         // ===== Mode MERGE =====
         // - Réglages : on conserve les valeurs courantes (rien d'écrasé).
-        // - Folders : union (les folders nouveaux sont ajoutés à la fin).
+        // - Folders : union (les folders nouveaux sont ajoutés à la fin),
+        //   ajoutés en local-only.
         // - Items : append. On régénère les IDs pour éviter toute collision
         //   avec des items existants ; les fichiers binaires sont récupérés
         //   par l'ancien ID puis restaurés sous un nouveau nom.
-        for f in bundle.folders where !folders.contains(f) {
-            folders.append(f)
+        for f in bundle.folders where !folders.contains(where: { $0.name == f }) {
+            let nextIndex = (folders.map(\.sortIndex).max() ?? 0) + 1
+            folders.append(Folder(name: f, iCloudSynced: false, sortIndex: nextIndex))
         }
         saveFolders()
 
