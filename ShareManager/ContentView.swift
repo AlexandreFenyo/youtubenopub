@@ -201,6 +201,53 @@ enum AICounters {
     private static func modelKey(_ p: String)     -> String { "ai.\(p).model" }
 }
 
+/// Payload utilisé pour le drag-and-drop d'items depuis la liste de droite
+/// vers un folder de la sidebar (iPad uniquement). Type dédié — pas un
+/// simple String — pour ne pas accepter par erreur un drop d'origine
+/// externe.
+struct ItemDragPayload: Codable, Transferable {
+    let ids: [String]
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .itemDragPayload)
+    }
+}
+
+extension UTType {
+    static let itemDragPayload = UTType(exportedAs: "fr.fenyo.sharemanager.itemdrag")
+}
+
+/// Active le drag sur une ligne d'item uniquement sur iPad. Sur iPhone,
+/// la sidebar n'est pas visible en même temps que la liste, donc le
+/// drag-vers-folder n'a aucun sens : on ne pose pas le modifier. Si
+/// l'item fait partie d'une multi-sélection (mode Edit), le payload
+/// embarque tous les ids sélectionnés ; sinon, juste celui-ci.
+struct ItemDragModifier: ViewModifier {
+    let item: SharedItem
+    let selection: Set<String>
+
+    private var payloadIds: [String] {
+        selection.contains(item.id) && selection.count > 1
+            ? Array(selection)
+            : [item.id]
+    }
+
+    func body(content: Content) -> some View {
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            content.draggable(ItemDragPayload(ids: payloadIds)) {
+                let count = payloadIds.count
+                Label(count > 1
+                      ? String(localized: "\(count) items")
+                      : (item.title ?? URL(string: item.url)?.lastPathComponent ?? item.url),
+                      systemImage: count > 1 ? "square.stack.fill" : "doc")
+                    .padding(8)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            }
+        } else {
+            content
+        }
+    }
+}
+
 enum StoreKeys {
     static let items = "items"
     static let folders = "folders"
@@ -322,7 +369,22 @@ struct ContentView: View {
     /// selection actif tant que la `selection` Set n'est pas vide, ce
     /// qui empêche `.onTapGesture` d'ouvrir une URL après une sortie
     /// d'edit mode laissant des items cochés.
-    @Environment(\.editMode) private var editMode
+    /// EditMode possédé par ContentView (et non pas fourni par SwiftUI
+    /// via l'environnement). C'est obligatoire pour pouvoir le muter
+    /// programmatiquement après une opération de batch (déplacement /
+    /// suppression) : avec l'editMode système, l'écriture n'est pas
+    /// honorée. Le binding est injecté dans l'environnement plus bas via
+    /// `.environment(\.editMode, $editMode)`, ce qui fait que l'EditButton
+    /// et le `List(selection:)` du detail view utilisent bien notre état.
+    @State private var editMode: EditMode = .inactive
+    /// Indique si le presse-papiers contient quelque chose qu'on peut
+    /// proposer de coller comme nouvel item. Mis à jour à l'arrivée en
+    /// foreground et sur `UIPasteboard.changedNotification`. On ne lit
+    /// que les flags `hasURLs` / `hasStrings`, qui ne déclenchent PAS la
+    /// bannière système "ShareManager pasted from …" — celle-ci
+    /// n'apparaîtra que lorsque l'utilisateur choisira d'effectuer le
+    /// collage.
+    @State private var hasPasteableContent: Bool = false
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.verticalSizeClass) private var vSizeClass
     @State private var editingNoteItem: SharedItem? = nil
@@ -552,6 +614,7 @@ struct ContentView: View {
             loadFolders()
             loadSelectedFolder()
             loadItems()
+            refreshPasteableState()
             // Plus de refresh automatique au démarrage : l'utilisateur
             // doit explicitement tirer la liste vers le bas, ou choisir
             // « Refresh previews and URL dates » dans le menu …, ou
@@ -559,9 +622,14 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             loadItems()
+            refreshPasteableState()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             loadItems()
+            refreshPasteableState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
+            refreshPasteableState()
         }
         .onReceive(Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()) { _ in
             loadItems()
@@ -832,7 +900,18 @@ struct ContentView: View {
                             }
                         }
                     }
+                    // Cible de drop pour les items glissés depuis la
+                    // liste de droite (iPad uniquement). Les Smart Views
+                    // ne sont pas concernées (elles ne sont pas dans ce
+                    // ForEach).
+                    .dropDestination(for: ItemDragPayload.self) { payloads, _ in
+                        guard UIDevice.current.userInterfaceIdiom == .pad,
+                              let payload = payloads.first else { return false }
+                        moveItemsToFolder(ids: payload.ids, to: folder)
+                        return true
+                    }
                 }
+                .onMove(perform: moveFolders)
             }
         }
         .animation(.easeInOut(duration: 0.5), value: smartFoldersExpanded)
@@ -887,6 +966,7 @@ struct ContentView: View {
                             ForEach(currentItems) { item in
                                 itemRow(item)
                                     .tag(item.id)
+                                    .modifier(ItemDragModifier(item: item, selection: selection))
                             }
                             .onDelete(perform: deleteItems)
                             // Le drag-to-move n'a de sens que dans le
@@ -899,6 +979,7 @@ struct ContentView: View {
                             // dossiers, tant que le tri est manuel.
                             .onMove(perform: sortOrder == .insertion ? moveItems : nil)
                         }
+                        .environment(\.editMode, $editMode)
                         .animation(.easeInOut(duration: 0.5), value: typeFilter)
                         .animation(.easeInOut(duration: 0.5), value: currentItems.count)
                         .refreshable {
@@ -924,8 +1005,22 @@ struct ContentView: View {
                 }
             }
             ToolbarItem(placement: .navigationBarLeading) {
-                EditButton()
-                    .disabled(items.isEmpty)
+                // Bouton Edit custom — pilote directement notre @State
+                // `editMode`. On n'utilise PAS `EditButton()` car celui-ci
+                // est rendu dans la couche toolbar de SwiftUI, hors de la
+                // hiérarchie d'environnement classique, et ignore parfois
+                // un `.environment(\.editMode, $...)` posé plus haut →
+                // impossible alors de sortir du mode Edit programma-
+                // tiquement après une opération de batch.
+                Button {
+                    withAnimation {
+                        editMode = editMode.isEditing ? .inactive : .active
+                    }
+                    if !editMode.isEditing { selection.removeAll() }
+                } label: {
+                    Text(editMode.isEditing ? "Done" : "Edit")
+                }
+                .disabled(items.isEmpty)
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 filterSortMenu
@@ -1223,6 +1318,14 @@ struct ContentView: View {
 
     private var settingsMenu: some View {
         Menu {
+            if hasPasteableContent {
+                Button {
+                    pasteAsItem()
+                } label: {
+                    Label("Paste URL from clipboard", systemImage: "doc.on.clipboard")
+                }
+                Divider()
+            }
             if isIPhonePortrait {
                 Button {
                     showPreviewsSheet = true
@@ -1952,6 +2055,15 @@ struct ContentView: View {
         selectedFolder = trimmed
     }
 
+    /// Réordonne la liste des folders. L'ordre est persisté dans
+    /// `UserDefaults` (App Group) via `saveFolders()` et apparaît tel
+    /// quel dans les sauvegardes (`BackupBundle.folders`), donc il est
+    /// restauré à l'identique lors d'un import.
+    private func moveFolders(from source: IndexSet, to destination: Int) {
+        folders.move(fromOffsets: source, toOffset: destination)
+        saveFolders()
+    }
+
     private func deleteFolder(_ name: String) {
         guard name != StoreKeys.defaultFolder else { return }
         // Supprime les items de ce folder (et les fichiers sur disque le cas échéant)
@@ -2236,6 +2348,88 @@ struct ContentView: View {
         saveItems()
     }
 
+    /// Met à jour `hasPasteableContent` à partir des flags du presse-
+    /// papiers. On consulte uniquement `hasURLs` / `hasStrings` qui sont
+    /// gratuits (pas de bannière système). La validation « est-ce vraiment
+    /// une URL ? » est faite côté action (`pasteAsItem`).
+    private func refreshPasteableState() {
+        let pb = UIPasteboard.general
+        let new = pb.hasURLs || pb.hasStrings
+        if new != hasPasteableContent { hasPasteableContent = new }
+    }
+
+    /// Action déclenchée par l'entrée « Paste URL from clipboard » du
+    /// menu …. Lit l'URL depuis le presse-papiers et l'insère comme un
+    /// nouvel item, comme s'il avait été partagé depuis une autre app.
+    /// Folder cible : le dossier sélectionné si on est sur un vrai
+    /// dossier ; sinon (smart view, ou rien) le dossier par défaut.
+    private func pasteAsItem() {
+        let pb = UIPasteboard.general
+        var urlString: String? = nil
+        if pb.hasURLs, let u = pb.url {
+            urlString = u.absoluteString
+        } else if pb.hasStrings, let s = pb.string {
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let u = URL(string: trimmed),
+               let scheme = u.scheme?.lowercased(),
+               scheme == "http" || scheme == "https" {
+                urlString = trimmed
+            }
+        }
+        guard let urlString else {
+            refreshPasteableState()
+            return
+        }
+
+        let targetFolder: String
+        if smartFolder == nil,
+           let sel = selectedFolder,
+           folders.contains(sel) {
+            targetFolder = sel
+        } else {
+            targetFolder = StoreKeys.defaultFolder
+        }
+
+        let now = Date().timeIntervalSince1970
+        let newItem = SharedItem(
+            id: UUID().uuidString,
+            url: urlString,
+            title: nil,
+            sourceApp: "Pasteboard",
+            folder: targetFolder,
+            timestamp: now,
+            kind: "url"
+        )
+        items.insert(newItem, at: 0)
+        saveItems()
+
+        // Aligné sur le comportement de la Share Extension : incrémente
+        // le compteur global utilisé pour le rappel d'avis App Store.
+        if let d = defaults {
+            d.set(d.integer(forKey: "totalShareCount") + 1, forKey: "totalShareCount")
+        }
+
+        refreshPasteableState()
+    }
+
+    /// Déplace en bloc les items dont l'id est dans `ids` vers `folder`.
+    /// Utilisé par le drag-and-drop iPad depuis la liste de droite vers
+    /// la sidebar : un seul item si l'utilisateur n'est pas en mode Edit,
+    /// toute la sélection en mode Edit. Vide ensuite la sélection comme
+    /// le fait `moveSelected(to:)`.
+    private func moveItemsToFolder(ids: [String], to folder: String) {
+        guard folders.contains(folder) else { return }
+        let idSet = Set(ids)
+        var changed = false
+        for i in 0..<items.count where idSet.contains(items[i].id) && items[i].folder != folder {
+            items[i].folder = folder
+            changed = true
+        }
+        if changed { saveItems() }
+        selection.removeAll()
+        exitEditModeIfActive()
+    }
+
     private func removeFileIfLocal(_ urlString: String) {
         guard let url = URL(string: urlString), url.isFileURL else { return }
         try? FileManager.default.removeItem(at: url)
@@ -2306,6 +2500,7 @@ struct ContentView: View {
         Spotlight.deindex(Array(ids))
         saveItems()
         selection.removeAll()
+        exitEditModeIfActive()
     }
 
     private func moveSelected(to folder: String) {
@@ -2317,6 +2512,15 @@ struct ContentView: View {
         }
         saveItems()
         selection.removeAll()
+        exitEditModeIfActive()
+    }
+
+    /// Sort du mode Edit s'il est actif. Appelé après les opérations de
+    /// batch (suppression, déplacement) — l'utilisateur a fait son action,
+    /// on retourne en mode normal sans qu'il ait à retoucher « Done ».
+    private func exitEditModeIfActive() {
+        guard editMode.isEditing else { return }
+        withAnimation { editMode = .inactive }
     }
 
     // MARK: - OCR (photos)
@@ -2952,7 +3156,7 @@ struct ContentView: View {
     private func openItem(_ item: SharedItem) {
         // Si on est en edit mode, ne rien faire : le tap est destiné à
         // modifier la sélection, géré par le List(selection:).
-        if editMode?.wrappedValue.isEditing == true { return }
+        if editMode.isEditing { return }
         // Sortie d'edit mode propre : si une sélection résiduelle existe
         // hors edit mode, iOS peut intercepter les taps comme « toggle
         // selection » au lieu de les laisser passer à .onTapGesture.

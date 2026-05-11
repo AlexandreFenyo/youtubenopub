@@ -16,3 +16,6 @@ Pods/
 
 # macOS
 .DS_Store
+
+# Demo data backup used to populate the app for App Store screenshots
+ShareManager/Sharedemo.json
