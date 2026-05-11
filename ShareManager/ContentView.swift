@@ -663,14 +663,24 @@ struct ContentView: View {
             // doit explicitement tirer la liste vers le bas, ou choisir
             // « Refresh previews and URL dates » dans le menu …, ou
             // utiliser une entrée de menu contextuel sur une ligne.
+            // CloudSync : on raffraichit le statut compte iCloud et on
+            // tire le delta éventuel. Aucun trafic si l'utilisateur n'a
+            // marqué aucun folder synced (refreshAccountStatus est gratuit ;
+            // pullChanges ne fait rien tant que la zone n'a pas été créée).
+            Task {
+                await CloudSync.shared.refreshAccountStatus()
+                await CloudSync.shared.pullChanges()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             loadItems()
             refreshPasteableState()
+            Task { await CloudSync.shared.pullChanges() }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             loadItems()
             refreshPasteableState()
+            Task { await CloudSync.shared.pullChanges() }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
             refreshPasteableState()
@@ -2135,6 +2145,12 @@ struct ContentView: View {
         // seconde, ce qui sature WidgetKit côté système. On planifie au
         // plus un reload toutes les 2 s.
         scheduleWidgetReload()
+        // Notifie CloudSync : il calculera le diff vs son snapshot
+        // interne et pushera (1 s de debouncing) ; aucun trafic
+        // CloudKit tant qu'aucun folder n'est marqué synced.
+        let foldersSnap = folders
+        let itemsSnap = toSave
+        Task { await CloudSync.shared.snapshotChanged(folders: foldersSnap, items: itemsSnap) }
     }
 
     private func scheduleWidgetReload() {
@@ -2174,6 +2190,11 @@ struct ContentView: View {
         if let data = try? JSONEncoder().encode(folders) {
             defaults.set(data, forKey: StoreKeys.folders)
         }
+        // CloudSync : snapshot pour détecter les folders à push/delete
+        // (icone synced/unsynced changée, ordre, etc.).
+        let foldersSnap = folders
+        let itemsSnap = items
+        Task { await CloudSync.shared.snapshotChanged(folders: foldersSnap, items: itemsSnap) }
     }
 
     private func loadSelectedFolder() {
@@ -2242,7 +2263,11 @@ struct ContentView: View {
         guard !folders[idx].iCloudSynced else { return }
         folders[idx].iCloudSynced = true
         saveFolders()
-        // TODO: publier vers CloudKit via CloudSync.shared.startSync(folder, items)
+        let snapshot = folders[idx]
+        let snapshotItems = items
+        Task {
+            await CloudSync.shared.startSync(folder: snapshot, items: snapshotItems)
+        }
     }
 
     /// Désactive la sync iCloud pour un dossier. Le record CloudKit
@@ -2254,7 +2279,9 @@ struct ContentView: View {
         guard folders[idx].iCloudSynced else { return }
         folders[idx].iCloudSynced = false
         saveFolders()
-        // TODO: supprimer du cloud via CloudSync.shared.stopSync(folderName: name)
+        Task {
+            await CloudSync.shared.stopSync(folderName: name)
+        }
     }
 
     private func deleteFolder(_ name: String) {
