@@ -390,6 +390,14 @@ struct ContentView: View {
     @State private var editingNoteItem: SharedItem? = nil
     @State private var smartFolder: SmartFolder? = nil
     @AppStorage("smartFoldersExpanded") private var smartFoldersExpanded: Bool = true
+    /// Active la détection automatique de bordure monochrome dans les
+    /// vignettes d'URL : si la capture WKWebView a une grosse bordure
+    /// uniforme (ex. fond noir entourant un lecteur vidéo centré), on
+    /// recadre sur la zone d'intérêt avant le `scaleAspectFit` final, ce
+    /// qui agrandit visuellement le contenu utile dans la vignette
+    /// 320×200. Activé par défaut — l'utilisateur peut décocher via le
+    /// menu « ... » pour revenir au comportement historique.
+    @AppStorage("autoCropMonochromePreviews") private var autoCropMonochromePreviews: Bool = true
 
     enum SortOrder: String, CaseIterable, Identifiable {
         case insertion, dateNewest, dateOldest, titleAZ, sourceAZ
@@ -1378,6 +1386,9 @@ struct ContentView: View {
                 }
             }
             Divider()
+            Toggle(isOn: $autoCropMonochromePreviews) {
+                Label("Auto-crop URL previews", systemImage: "viewfinder")
+            }
             Toggle(isOn: $debugLogsEnabled) {
                 Label("Enable Debug Logs", systemImage: "ladybug")
             }
@@ -2402,6 +2413,16 @@ struct ContentView: View {
         )
         items.insert(newItem, at: 0)
         saveItems()
+
+        // Lance immédiatement le fetch de la date Last-Modified. On ne
+        // peut pas se reposer sur l'auto-fetch fait par `loadItems()`
+        // parce que celui-ci ne déclenche le fetch que pour les items
+        // dont l'id n'était pas dans `previousIDs` ; or on vient
+        // d'insérer manuellement le nouvel item dans `items`, donc il
+        // sera déjà connu au prochain tick et l'auto-fetch sera sauté.
+        // Sans cet appel, la ligne resterait bloquée sur « Fetching
+        // date… » clignotant jusqu'à un refresh manuel.
+        startFetchLastModified(for: newItem)
 
         // Aligné sur le comportement de la Share Extension : incrémente
         // le compteur global utilisé pour le rappel d'avis App Store.
@@ -4933,9 +4954,14 @@ enum PreviewGenerator {
 
         var bigSnapshot: UIImage? = nil
         if loaded {
-            // Délai supplémentaire pour laisser les images / fonts /
-            // animations CSS se stabiliser avant la capture.
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            // Délai supplémentaire (2,5 s) avant la capture, pour
+            // laisser le temps :
+            //   - aux images / fonts / animations CSS de se stabiliser,
+            //   - aux lecteurs vidéo injectés en JS d'apparaître (sur
+            //     certains sites le player ne devient visible qu'au bout
+            //     de ~0,5 s après que la navigation soit déclarée
+            //     terminée par WKWebView).
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
 
             let snap = WKSnapshotConfiguration()
             snap.rect = CGRect(origin: .zero, size: viewportSize)
@@ -4965,7 +4991,8 @@ enum PreviewGenerator {
         try? await Task.sleep(nanoseconds: 200_000_000)
 
         guard let big = bigSnapshot else { return nil }
-        return scaleAspectFit(image: big)
+        let prepared = autoCropEnabled ? cropToContentBoundingBox(big) : big
+        return scaleAspectFit(image: prepared)
     }
 
     /// Lance une opération à callback (`takeSnapshot` etc.) avec un
@@ -5115,6 +5142,226 @@ enum PreviewGenerator {
             ctx.setShouldAntialias(true)
             image.draw(in: CGRect(origin: origin, size: drawSize))
         }
+    }
+
+    /// Lecture (non-cachée) du toggle utilisateur « Auto-crop URL
+    /// previews ». Vrai par défaut quand la clé n'a jamais été écrite,
+    /// pour activer la fonctionnalité d'office sans migration.
+    private static var autoCropEnabled: Bool {
+        (UserDefaults.standard.object(forKey: "autoCropMonochromePreviews") as? Bool) ?? true
+    }
+
+    /// Si l'image présente une grande bordure monochrome (ex. capture
+    /// d'une page web qui dessine un lecteur vidéo centré sur fond
+    /// noir), renvoie un crop sur la zone d'intérêt. Sinon renvoie
+    /// l'image inchangée.
+    ///
+    /// Algorithme :
+    ///   1. Downscale en 160×N RGBA (~64 KB de buffer).
+    ///   2. Couleur de fond = médiane par canal des 4 bandes de bordure.
+    ///   3. Pixel « intéressant » = distance L1 au fond > 90.
+    ///   4. Calcule densité = N_interesting / aire(bbox-all-interesting).
+    ///      - Densité élevée (≥ 50 %) : le contenu remplit globalement
+    ///        la page → on garde la bbox-all (= page presque pleine
+    ///        d'éléments, type article Wikipedia). 85 % d'aire ⇒ no-op
+    ///        (déjà bien rempli).
+    ///      - Densité basse (< 50 %) : la page contient un contenu
+    ///        principal isolé sur fond uni, parsemé de petits
+    ///        décorateurs UI (texte de header, barre de saisie, etc.).
+    ///        On cherche alors la PLUS GROSSE composante connexe
+    ///        (4-voisinage) parmi les pixels intéressants : c'est le
+    ///        contenu principal. Sa bbox seule est utilisée — les
+    ///        petits décorateurs (composantes plus petites) sont
+    ///        ignorés.
+    ///   5. Marge de 4 %, retraduction en coordonnées de l'image
+    ///      source, `cgImage.cropping(to:)`.
+    private static func cropToContentBoundingBox(_ image: UIImage) -> UIImage {
+        // S'assure que l'image a une orientation normalisée (sinon
+        // `cgImage` pointerait sur les pixels bruts non orientés, et le
+        // crop tomberait à côté).
+        let normalized: UIImage
+        if image.imageOrientation == .up {
+            normalized = image
+        } else {
+            let r = UIGraphicsImageRenderer(size: image.size)
+            normalized = r.image { _ in image.draw(in: CGRect(origin: .zero, size: image.size)) }
+        }
+        guard let cg = normalized.cgImage else { return image }
+        let srcW = cg.width
+        let srcH = cg.height
+        guard srcW > 0, srcH > 0 else { return image }
+
+        // Grille de travail réduite. Garde un ratio proche de l'image
+        // source pour ne pas distordre la médiane des bords.
+        let gridW = 160
+        let gridH = max(20, Int((Double(gridW) * Double(srcH) / Double(srcW)).rounded()))
+        let bytesPerRow = gridW * 4
+        var pixels = [UInt8](repeating: 0, count: gridW * gridH * 4)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: &pixels,
+                                  width: gridW,
+                                  height: gridH,
+                                  bitsPerComponent: 8,
+                                  bytesPerRow: bytesPerRow,
+                                  space: colorSpace,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return image }
+        ctx.interpolationQuality = .low
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: gridW, height: gridH))
+
+        // Échantillonne les 4 bandes de bordure (épaisseur 1 px en
+        // coords de la grille). Pour chaque canal, prend la médiane.
+        var rs = [UInt8]()
+        var gs = [UInt8]()
+        var bs = [UInt8]()
+        rs.reserveCapacity(2 * gridW + 2 * gridH)
+        gs.reserveCapacity(2 * gridW + 2 * gridH)
+        bs.reserveCapacity(2 * gridW + 2 * gridH)
+        func appendPixel(x: Int, y: Int) {
+            let i = (y * gridW + x) * 4
+            rs.append(pixels[i])
+            gs.append(pixels[i + 1])
+            bs.append(pixels[i + 2])
+        }
+        for x in 0..<gridW {
+            appendPixel(x: x, y: 0)
+            appendPixel(x: x, y: gridH - 1)
+        }
+        for y in 0..<gridH {
+            appendPixel(x: 0, y: y)
+            appendPixel(x: gridW - 1, y: y)
+        }
+        rs.sort(); gs.sort(); bs.sort()
+        let bgR = Int(rs[rs.count / 2])
+        let bgG = Int(gs[gs.count / 2])
+        let bgB = Int(bs[bs.count / 2])
+
+        // Marque les pixels « intéressants » et calcule la bbox-all
+        // en parallèle.
+        let threshold = 90 // ≈ 30 par canal sur 255 (L1 sur RGB)
+        var interesting = [Bool](repeating: false, count: gridW * gridH)
+        var nInteresting = 0
+        var allMinX = gridW, allMinY = gridH, allMaxX = -1, allMaxY = -1
+        for y in 0..<gridH {
+            let rowBase = y * gridW * 4
+            let maskBase = y * gridW
+            for x in 0..<gridW {
+                let i = rowBase + x * 4
+                let dr = abs(Int(pixels[i]) - bgR)
+                let dg = abs(Int(pixels[i + 1]) - bgG)
+                let db = abs(Int(pixels[i + 2]) - bgB)
+                if dr + dg + db > threshold {
+                    interesting[maskBase + x] = true
+                    nInteresting += 1
+                    if x < allMinX { allMinX = x }
+                    if x > allMaxX { allMaxX = x }
+                    if y < allMinY { allMinY = y }
+                    if y > allMaxY { allMaxY = y }
+                }
+            }
+        }
+        // Image entièrement monochrome (rare en pratique — un fond
+        // 100 % uni sans la moindre variation) : rien à cropper.
+        if allMaxX < 0 { return image }
+
+        let allArea = (allMaxX - allMinX + 1) * (allMaxY - allMinY + 1)
+        let totalArea = gridW * gridH
+        let density = Double(nInteresting) / Double(allArea)
+
+        // Bbox à utiliser : par défaut, celle de l'union de tous les
+        // pixels intéressants ; en cas de page « clairsemée », celle
+        // de la plus grosse composante connexe seule.
+        var useMinX = allMinX, useMinY = allMinY
+        var useMaxX = allMaxX, useMaxY = allMaxY
+
+        if density < 0.5 {
+            // Plus grosse composante connexe (4-voisinage). DFS
+            // itératif via une pile pour éviter tout débordement de
+            // récursion sur de grosses composantes.
+            var labels = [Int8](repeating: 0, count: gridW * gridH) // 0 = non visité
+            var stack: [Int] = []
+            stack.reserveCapacity(256)
+            var bestCount = 0
+            var bestMinX = 0, bestMinY = 0, bestMaxX = 0, bestMaxY = 0
+            for sy in 0..<gridH {
+                for sx in 0..<gridW {
+                    let sIdx = sy * gridW + sx
+                    if !interesting[sIdx] || labels[sIdx] == 1 { continue }
+                    stack.removeAll(keepingCapacity: true)
+                    stack.append(sIdx)
+                    labels[sIdx] = 1
+                    var count = 0
+                    var cMinX = sx, cMinY = sy, cMaxX = sx, cMaxY = sy
+                    while let idx = stack.popLast() {
+                        let y = idx / gridW
+                        let x = idx - y * gridW
+                        count += 1
+                        if x < cMinX { cMinX = x }
+                        if x > cMaxX { cMaxX = x }
+                        if y < cMinY { cMinY = y }
+                        if y > cMaxY { cMaxY = y }
+                        if x > 0 {
+                            let n = idx - 1
+                            if interesting[n] && labels[n] == 0 { labels[n] = 1; stack.append(n) }
+                        }
+                        if x < gridW - 1 {
+                            let n = idx + 1
+                            if interesting[n] && labels[n] == 0 { labels[n] = 1; stack.append(n) }
+                        }
+                        if y > 0 {
+                            let n = idx - gridW
+                            if interesting[n] && labels[n] == 0 { labels[n] = 1; stack.append(n) }
+                        }
+                        if y < gridH - 1 {
+                            let n = idx + gridW
+                            if interesting[n] && labels[n] == 0 { labels[n] = 1; stack.append(n) }
+                        }
+                    }
+                    if count > bestCount {
+                        bestCount = count
+                        bestMinX = cMinX
+                        bestMinY = cMinY
+                        bestMaxX = cMaxX
+                        bestMaxY = cMaxY
+                    }
+                }
+            }
+            // Si on a trouvé une composante (toujours vrai puisque
+            // nInteresting > 0), on l'utilise.
+            if bestCount > 0 {
+                useMinX = bestMinX
+                useMinY = bestMinY
+                useMaxX = bestMaxX
+                useMaxY = bestMaxY
+            }
+        }
+
+        // Garde-fou : si la bbox retenue couvre déjà l'essentiel du
+        // viewport, ne pas cropper inutilement.
+        let useArea = (useMaxX - useMinX + 1) * (useMaxY - useMinY + 1)
+        if Double(useArea) / Double(totalArea) >= 0.85 { return image }
+
+        // Marge de 4 %, retraduction en coordonnées de l'image source.
+        let scaleX = Double(srcW) / Double(gridW)
+        let scaleY = Double(srcH) / Double(gridH)
+        let marginX = Int((Double(gridW) * 0.04).rounded())
+        let marginY = Int((Double(gridH) * 0.04).rounded())
+        let gMinX = max(0, useMinX - marginX)
+        let gMinY = max(0, useMinY - marginY)
+        let gMaxX = min(gridW - 1, useMaxX + marginX)
+        let gMaxY = min(gridH - 1, useMaxY + marginY)
+        let cropX = Int((Double(gMinX) * scaleX).rounded(.down))
+        let cropY = Int((Double(gMinY) * scaleY).rounded(.down))
+        let cropW = Int((Double(gMaxX - gMinX + 1) * scaleX).rounded(.up))
+        let cropH = Int((Double(gMaxY - gMinY + 1) * scaleY).rounded(.up))
+        let cropRect = CGRect(
+            x: max(0, cropX),
+            y: max(0, cropY),
+            width: min(srcW - max(0, cropX), max(1, cropW)),
+            height: min(srcH - max(0, cropY), max(1, cropH))
+        )
+        guard let cropped = cg.cropping(to: cropRect) else { return image }
+        return UIImage(cgImage: cropped, scale: normalized.scale, orientation: .up)
     }
 
     /// Tous les rendus passent par cette fonction. On hop sur le main
