@@ -63,7 +63,7 @@ struct SharedItem: Codable, Identifiable, Hashable {
     /// Nom de fichier (à l'intérieur du sous-dossier `previews/` du
     /// container App Group) de l'aperçu PNG 320x200. Nil tant que la
     /// génération n'a pas eu lieu, "" si l'on a essayé sans succès
-    /// OU si l'utilisateur a effacé la vignette via « Clear previews ».
+    /// OU si l'utilisateur a effacé l'aperçu via « Clear previews ».
     /// Dans les deux cas, le pull-to-refresh / 1B retentera la
     /// génération.
     var previewPath: String?
@@ -101,8 +101,18 @@ struct SharedItem: Codable, Identifiable, Hashable {
     ///   - `clearPreviewsForCurrent` saute l'item,
     ///   - le pipeline de pull-to-refresh / « Refresh previews and URL
     ///     dates » ignore aussi cet item.
-    /// Un cadenas est dessiné en surimpression sur la vignette.
+    /// Un cadenas est dessiné en surimpression sur l'aperçu.
     var previewLocked: Bool?
+    /// Vrai si l'utilisateur a zoomé l'aperçu de cet item. Le zoom
+    /// est purement visuel : l'image PNG stockée dans `previews/` est
+    /// inchangée, et `previewPath` aussi. On applique simplement un
+    /// `scaleEffect(2)` centré au moment du rendu — la taille occupée
+    /// dans l'UI ne change pas, mais on voit 2x plus gros le centre
+    /// de l'image. Indépendant du verrou et du recadrage automatique :
+    /// c'est l'image finale (post-recadrage si applicable) qui est
+    /// zoomée. Persisté en local + cloud (champ scalaire du `Item`
+    /// record CloudKit).
+    var previewZoomed: Bool?
 
     var effectiveKind: String {
         if let k = kind { return k }
@@ -318,6 +328,16 @@ struct ContentView: View {
     @State private var showDebugLogs = false
     @State private var debugLogs = ""
     @State private var lastLogSize: Int = 0
+    /// Bouton « Resync iCloud » : ouvre une confirmation avant de
+    /// déclencher `CloudSync.resyncReconcile()`, qui peut écrire et
+    /// supprimer dans iCloud.
+    @State private var showResyncConfirm = false
+    @State private var isResyncing = false
+    /// Confirmation pour « Delete local data » : action destructive
+    /// qui efface le contenu des folders non synchronisés + le
+    /// contenu du folder Default, mais préserve les folders synced
+    /// et leur contenu (cloud-backed).
+    @State private var showDeleteLocalConfirm = false
 
     @State private var themeAnnouncement: (old: Int, new: Int)? = nil
     /// Annonce overlay pull-to-refresh (mêmes style/durée que themeOverlay).
@@ -427,10 +447,10 @@ struct ContentView: View {
     @State private var smartFolder: SmartFolder? = nil
     @AppStorage("smartFoldersExpanded") private var smartFoldersExpanded: Bool = true
     /// Active la détection automatique de bordure monochrome dans les
-    /// vignettes d'URL : si la capture WKWebView a une grosse bordure
+    /// aperçus d'URL : si la capture WKWebView a une grosse bordure
     /// uniforme (ex. fond noir entourant un lecteur vidéo centré), on
     /// recadre sur la zone d'intérêt avant le `scaleAspectFit` final, ce
-    /// qui agrandit visuellement le contenu utile dans la vignette
+    /// qui agrandit visuellement le contenu utile dans l'aperçu
     /// 320×200. Activé par défaut — l'utilisateur peut décocher via le
     /// menu « ... » pour revenir au comportement historique.
     @AppStorage("autoCropMonochromePreviews") private var autoCropMonochromePreviews: Bool = true
@@ -658,6 +678,13 @@ struct ContentView: View {
             loadFolders()
             loadSelectedFolder()
             loadItems()
+            // Filet de sécurité défensif : un item dont le `folder` ne
+            // correspond plus à aucun folder local est supprimé.
+            // Normalement ne doit jamais arriver (deleteFolder retire
+            // bien ses items, applyPulledChanges crée le folder avant
+            // les items du cloud), mais en cas de bug le cleanup
+            // évite des items « invisibles » bloqués dans une vue.
+            cleanupOrphanItems()
             refreshPasteableState()
             // Plus de refresh automatique au démarrage : l'utilisateur
             // doit explicitement tirer la liste vers le bas, ou choisir
@@ -685,8 +712,31 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
             refreshPasteableState()
         }
+        // Poll iCloud toutes les 10 s tant que l'app est au premier
+        // plan. Sans ce poll, les modifs faites sur un autre appareil
+        // n'arrivent que via push silencieuse APNs (best-effort,
+        // parfois 1 min de délai observé) ou via didBecomeActive.
+        // PAS de gate « au moins un folder synced localement » : ça
+        // créait un chicken-and-egg côté appareil receveur qui ne
+        // connaissait jamais les folders synced d'un autre appareil
+        // tant qu'il n'avait pas activé une sync lui-même. Une
+        // requête CloudKit vide (token à jour) est triviale ; et
+        // `pullChanges` se gate déjà sur `accountState == .available`
+        // pour ne rien faire si iCloud n'est pas configuré.
+        .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
+            Task { await CloudSync.shared.pullChanges() }
+        }
         .onReceive(Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()) { _ in
             loadItems()
+            // Recharge aussi la liste des dossiers depuis UserDefaults
+            // App Group : CloudSync écrit directement dans cet espace
+            // partagé quand il reçoit des Folder records via pull, sans
+            // notifier ContentView. Sans ce reload périodique, l'@State
+            // `folders` resterait obsolète et le folder pull-é depuis
+            // un autre appareil n'apparaîtrait pas dans la sidebar.
+            // loadFolders fait déjà `if loaded != folders` donc pas de
+            // mutation @State inutile à chaque tick.
+            loadFolders()
             if debugLogsEnabled { loadDebugLogs() }
             checkAIEnabledTransition()
             checkShareCountForReview()
@@ -792,6 +842,26 @@ struct ContentView: View {
             Button("OK", role: .cancel) { importErrorMessage = nil }
         } message: { msg in
             Text(msg)
+        }
+        .confirmationDialog(
+            "Resync iCloud — confirm",
+            isPresented: $showResyncConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Resync iCloud") { runResyncReconcile() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Resync iCloud — body")
+        }
+        .confirmationDialog(
+            "Delete local data — confirm",
+            isPresented: $showDeleteLocalConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete local data", role: .destructive) { deleteLocalData() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Delete local data — body")
         }
     }
 
@@ -1001,7 +1071,15 @@ struct ContentView: View {
         // du container et les compteurs IA) restent confinés à ce
         // sous-arbre et ne déclenchent PAS de re-render de la toolbar de
         // ContentView (donc plus de clignotement des Menus).
-        StatsPanelView(appGroup: appGroup)
+        StatsPanelView(
+            appGroup: appGroup,
+            onDeleteLocalData: { showDeleteLocalConfirm = true },
+            onResyncICloud: { showResyncConfirm = true },
+            onResetAICounters: {
+                AICounters.resetAll()
+                resetPerItemAICallLimits()
+            }
+        )
     }
 
     private func smartCount(_ sf: SmartFolder) -> Int {
@@ -1443,6 +1521,11 @@ struct ContentView: View {
             } label: {
                 Label("Restore app data", systemImage: "square.and.arrow.down")
             }
+            Button(role: .destructive) {
+                showDeleteLocalConfirm = true
+            } label: {
+                Label("Delete local data", systemImage: "trash")
+            }
             if !AICounters.providersWithCalls().isEmpty {
                 Divider()
                 Button(role: .destructive) {
@@ -1470,6 +1553,35 @@ struct ContentView: View {
                     Label("Unlock previews of these URLs", systemImage: "lock.open")
                 }
             }
+            if hasURLItemsInCurrent {
+                Button {
+                    zoomPreviewsForCurrent()
+                } label: {
+                    Label("Zoom previews of these URLs", systemImage: "plus.magnifyingglass")
+                }
+                Button {
+                    unzoomPreviewsForCurrent()
+                } label: {
+                    Label("Unzoom previews of these URLs", systemImage: "minus.magnifyingglass")
+                }
+            }
+            Divider()
+            // « Resync iCloud » : remède utilisateur en cas
+            // d'incohérence local/cloud (token corrompu, items
+            // orphelins, folder absent d'un côté, etc.). Toujours
+            // visible : l'opération est globale, pas spécifique à un
+            // folder. Si aucun folder n'est synchronisé, la resync
+            // se contente de nettoyer d'éventuels orphelins cloud
+            // et de réimporter ce que le cloud contient.
+            // Contrairement à « Reset iCloud sync state » (réservé
+            // au debug), cette opération ne détruit pas le contenu :
+            // elle réconcilie en gardant le maximum.
+            Button {
+                showResyncConfirm = true
+            } label: {
+                Label("Resync iCloud", systemImage: "arrow.triangle.2.circlepath.icloud")
+            }
+            .disabled(isResyncing)
             Toggle(isOn: $debugLogsEnabled) {
                 Label("Enable Debug Logs", systemImage: "ladybug")
             }
@@ -1485,6 +1597,16 @@ struct ContentView: View {
                 } label: {
                     Label("Clear Logs", systemImage: "trash")
                 }
+                // Reset complet de l'état CloudKit pour repartir
+                // from-scratch en debug : supprime la zone côté serveur
+                // (cascade-delete des records) + efface tokens et
+                // drapeaux locaux. Met aussi tous les folders locaux en
+                // local-only (drapeau `iCloudSynced = false`).
+                Button(role: .destructive) {
+                    resetICloudSyncState()
+                } label: {
+                    Label("Reset iCloud sync state", systemImage: "icloud.slash.fill")
+                }
                 Divider()
             }
             Button {
@@ -1499,7 +1621,7 @@ struct ContentView: View {
         }
     }
 
-    /// Vrai si l'item a une vignette générée et exploitable
+    /// Vrai si l'item a un aperçu généré et exploitable
     /// (`previewPath` non nil ET non vide).
     private func hasUsablePreview(_ item: SharedItem) -> Bool {
         if let p = item.previewPath, !p.isEmpty { return true }
@@ -1522,7 +1644,7 @@ struct ContentView: View {
 
     /// Vrai si une opération asynchrone est en cours pour cet item :
     /// description IA, OCR (qui partage `describingIDs` via le pipeline
-    /// audio aussi), génération de vignette, fetch de date URL, ou
+    /// audio aussi), génération d'aperçu, fetch de date URL, ou
     /// reverse geocoding photo. Sert à faire clignoter l'icône de la
     /// ligne tant que ça travaille.
     private func isItemBusy(_ item: SharedItem) -> Bool {
@@ -1721,17 +1843,17 @@ struct ContentView: View {
         }
         .padding(.vertical, 4)
         // Réserve à droite pour que le texte ne passe jamais sous la
-        // vignette : largeur fixe + écart standard de respiration.
+        // aperçu : largeur fixe + écart standard de respiration.
         .padding(.trailing, hasUsablePreview(item) ? 128 : 0)
-        // On force toutes les lignes (qui ont une vignette) à une hauteur
-        // minimale qui correspond à celle de la vignette + un écart
-        // standard de 6 pt en haut et en bas → toutes les vignettes
+        // On force toutes les lignes (qui ont un aperçu) à une hauteur
+        // minimale qui correspond à celle de l'aperçu + un écart
+        // standard de 6 pt en haut et en bas → tous les aperçus
         // mesurent la MÊME hauteur, et celle-ci est aussi grande que le
         // raisonnable sans pour autant déborder sur la ligne suivante.
         .frame(maxWidth: .infinity,
                minHeight: hasUsablePreview(item) ? 84 : 0,
                alignment: .leading)
-        // Vignette à droite, TAILLE FIXE 112×70 (ratio 320/200 = 1.6).
+        // Aperçu à droite, TAILLE FIXE 112×70 (ratio 320/200 = 1.6).
         // L'overlay ne participe pas au layout du parent et le minHeight
         // ci-dessus garantit qu'il y a au moins 70 + 14 = 84 pt de
         // hauteur disponible.
@@ -1813,7 +1935,7 @@ struct ContentView: View {
                 }
             }
             // Verrouillage de la preview, réservé aux URLs (pour les
-            // autres types, la vignette est triviale à régénérer et
+            // autres types, l'aperçu est triviale à régénérer et
             // n'a pas besoin d'être protégée). Affiche UNIQUEMENT
             // l'action utile : « Lock » si non verrouillée, sinon
             // « Unlock ».
@@ -1827,10 +1949,19 @@ struct ContentView: View {
                         Label("Lock preview", systemImage: "lock")
                     }
                 }
+                Button {
+                    togglePreviewZoom(for: item)
+                } label: {
+                    if item.previewZoomed == true {
+                        Label("Unzoom preview", systemImage: "minus.magnifyingglass")
+                    } else {
+                        Label("Zoom preview", systemImage: "plus.magnifyingglass")
+                    }
+                }
             }
-            // « Regénérer la vignette » au sens large : générer s'il n'y
+            // « Regénérer l'aperçu » au sens large : générer s'il n'y
             // en a pas encore, regénérer s'il y en a déjà une. Toujours
-            // proposé pour les types qui supportent une vignette
+            // proposé pour les types qui supportent un aperçu
             // (canRegeneratePreview = pas audio, pas texte). Désactivé
             // quand la preview est verrouillée.
             if canRegeneratePreview(item) && item.previewLocked != true {
@@ -1876,6 +2007,60 @@ struct ContentView: View {
     /// `aiRateLimitWindowMinutes` minutes.
     static let aiRateLimitMaxCalls: Int = 20
     static let aiRateLimitWindowMinutes: Int = 5
+
+    /// Décode les entités HTML (`&amp;`, `&quot;`, `&#39;`, `&#x27;`,
+    /// etc.) dans une chaîne. Utilisé pour les titres `<title>`
+    /// extraits du HTML brut côté `fetchTitle` ainsi qu'à la migration
+    /// initiale des titres déjà stockés (entités résiduelles d'avant
+    /// l'ajout du décodage). Léger : pas de WebKit, juste un parser
+    /// linéaire sur les noms d'entités courants et les références
+    /// numériques `&#NNN;` / `&#xNN;`.
+    static func decodeHTMLEntities(_ s: String) -> String {
+        guard s.contains("&") else { return s }
+        let named: [String: String] = [
+            "amp": "&", "quot": "\"", "apos": "'", "lt": "<", "gt": ">",
+            "nbsp": "\u{00A0}", "hellip": "…", "mdash": "—", "ndash": "–",
+            "laquo": "«", "raquo": "»", "copy": "©", "reg": "®", "trade": "™",
+            "ldquo": "\u{201C}", "rdquo": "\u{201D}",
+            "lsquo": "\u{2018}", "rsquo": "\u{2019}",
+            "bull": "•", "middot": "·", "deg": "°",
+            "euro": "€", "pound": "£", "yen": "¥", "cent": "¢",
+            "times": "×", "divide": "÷", "plusmn": "±",
+            "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ",
+        ]
+        var result = ""
+        result.reserveCapacity(s.count)
+        var idx = s.startIndex
+        while idx < s.endIndex {
+            let ch = s[idx]
+            if ch == "&",
+               let semi = s[idx...].prefix(20).firstIndex(of: ";") {
+                let entity = String(s[s.index(after: idx)..<semi])
+                if entity.hasPrefix("#") {
+                    let numPart = entity.dropFirst()
+                    let scalar: Unicode.Scalar?
+                    if numPart.first == "x" || numPart.first == "X" {
+                        let hex = String(numPart.dropFirst())
+                        scalar = UInt32(hex, radix: 16).flatMap { Unicode.Scalar($0) }
+                    } else {
+                        scalar = UInt32(numPart).flatMap { Unicode.Scalar($0) }
+                    }
+                    if let scalar {
+                        result.append(Character(scalar))
+                        idx = s.index(after: semi)
+                        continue
+                    }
+                } else if let replacement = named[entity] {
+                    result.append(replacement)
+                    idx = s.index(after: semi)
+                    continue
+                }
+            }
+            result.append(ch)
+            idx = s.index(after: idx)
+        }
+        return result
+    }
 
     /// Enregistre un appel IA cloud, purge la fenêtre glissante et
     /// déclenche l'alerte (en remettant le compteur à zéro) si on dépasse
@@ -2033,6 +2218,28 @@ struct ContentView: View {
 
     private func loadItems() {
         guard let defaults else { return }
+
+        // Migration one-shot : décode les entités HTML (`&amp;`,
+        // `&quot;`, etc.) qui ont pu être stockées dans les titres
+        // d'items récupérés avant l'ajout du décodage côté
+        // `fetchTitle`. Idempotent (décoder une chaîne déjà décodée
+        // est un no-op), mais on gate sur un drapeau pour éviter
+        // de re-décoder tous les items à chaque démarrage.
+        if !defaults.bool(forKey: "htmlEntitiesTitleMigrationDone"),
+           let data = defaults.data(forKey: StoreKeys.items),
+           var arr = try? JSONDecoder().decode([SharedItem].self, from: data) {
+            var changed = false
+            for i in arr.indices {
+                if let t = arr[i].title, t.contains("&") {
+                    let decoded = Self.decodeHTMLEntities(t)
+                    if decoded != t { arr[i].title = decoded; changed = true }
+                }
+            }
+            if changed, let newData = try? JSONEncoder().encode(arr) {
+                defaults.set(newData, forKey: StoreKeys.items)
+            }
+            defaults.set(true, forKey: "htmlEntitiesTitleMigrationDone")
+        }
 
         // Migration unique depuis l'ancien format
         if defaults.data(forKey: StoreKeys.items) == nil,
@@ -2270,22 +2477,91 @@ struct ContentView: View {
         }
     }
 
+    /// Reset complet de la sync iCloud (réservé au debug). Côté
+    /// serveur : supprime la `CapturedZone` → cascade-delete de tous
+    /// les Folder/Item records et de leurs assets. Côté local : tous
+    /// les folders repassent en `iCloudSynced = false`, et CloudSync
+    /// efface ses tokens / drapeaux / snapshot mémoire.
+    private func resetICloudSyncState() {
+        for i in folders.indices where folders[i].iCloudSynced {
+            folders[i].iCloudSynced = false
+        }
+        saveFolders()
+        Task { await CloudSync.shared.resetState() }
+    }
+
+    /// Lance `resyncReconcile` côté CloudSync. Marque `isResyncing`
+    /// pendant l'exécution pour griser le bouton dans le menu et
+    /// éviter une double déclenche pendant que l'opération est en
+    /// cours. À la fin, recharge `folders` + `items` depuis l'App
+    /// Group UserDefaults : la resync a pu ajouter des folders
+    /// importés du cloud ou mettre à jour des items.
+    private func runResyncReconcile() {
+        guard !isResyncing else { return }
+        isResyncing = true
+        Task {
+            await CloudSync.shared.resyncReconcile()
+            await MainActor.run {
+                reloadFoldersAndItemsFromAppGroup()
+                isResyncing = false
+            }
+        }
+    }
+
+    /// Relit `folders` + `items` depuis l'App Group UserDefaults.
+    /// Utilisé après une opération CloudSync qui peut avoir écrit en
+    /// arrière-plan dans ces clés (resync, pull). Re-déclenche l'UI.
+    private func reloadFoldersAndItemsFromAppGroup() {
+        guard let d = UserDefaults(suiteName: appGroup) else { return }
+        if let data = d.data(forKey: "folders"),
+           let arr = try? JSONDecoder().decode([Folder].self, from: data) {
+            folders = arr
+        }
+        if let data = d.data(forKey: "items"),
+           let arr = try? JSONDecoder().decode([SharedItem].self, from: data) {
+            items = arr
+        }
+    }
+
     /// Désactive la sync iCloud pour un dossier. Le record CloudKit
     /// + ses items sont supprimés du cloud (cascade-delete côté Apple
     /// via la `parent` reference). Les items restent en local.
+    ///
+    /// **Comportement à connaître** : sur les AUTRES appareils du même
+    /// Apple ID, ce stop sync est interprété par `applyPulledChanges`
+    /// comme une suppression normale : le folder et ses items
+    /// **disparaissent** de leur sidebar/liste — y compris des items
+    /// qui avaient une origine locale chez eux mais avaient été pushés
+    /// dans le cloud entre-temps. L'appareil qui décide « Stop » est le
+    /// seul à conserver les données.
+    ///
+    /// **Auto-rejoin** : si un appareil tiers réactive ensuite « Sync to
+    /// iCloud » sur un folder du même nom, tous les appareils ayant
+    /// localement un folder homonyme verront leur drapeau `iCloudSynced`
+    /// repasser à `true` au prochain pull. C'est volontaire — pour
+    /// rester local-only, il faut renommer son folder localement avant
+    /// que la sync ne soit relancée ailleurs.
     private func stopICloudSync(forFolder name: String) {
         guard name != StoreKeys.defaultFolder else { return }
         guard let idx = folders.firstIndex(where: { $0.name == name }) else { return }
         guard folders[idx].iCloudSynced else { return }
         folders[idx].iCloudSynced = false
+        let itemIDs = items.filter { $0.folder == name }.map(\.id)
         saveFolders()
         Task {
-            await CloudSync.shared.stopSync(folderName: name)
+            await CloudSync.shared.stopSync(folderName: name, itemIDs: itemIDs)
         }
     }
 
     private func deleteFolder(_ name: String) {
         guard name != StoreKeys.defaultFolder else { return }
+        // Capture l'état pré-mutation pour propager la suppression au
+        // cloud + autres devices. Un folder synced déclenche le
+        // mécanisme de tombstone (vraie suppression cross-cluster),
+        // contrairement à un simple `stopSync` qui ne supprime que la
+        // sync mais préserve les copies locales sur les autres devices.
+        let wasSynced = folders.first(where: { $0.name == name })?.iCloudSynced == true
+        let syncedItemIDs = wasSynced ? items.filter { $0.folder == name }.map(\.id) : []
         // Supprime les items de ce folder (et les fichiers sur disque le cas échéant)
         let removed = items.filter { $0.folder == name }
         removed.forEach {
@@ -2299,6 +2575,79 @@ struct ContentView: View {
         if selectedFolder == name {
             selectedFolder = StoreKeys.defaultFolder
         }
+        if wasSynced {
+            let nameSnap = name
+            let idsSnap = syncedItemIDs
+            Task {
+                await CloudSync.shared.deleteSyncedFolder(folderName: nameSnap, itemIDs: idsSnap)
+            }
+        }
+    }
+
+    /// Supprime toutes les données purement locales :
+    ///   - tous les folders non synchronisés sauf `Default` (qui doit
+    ///     toujours exister), avec leur contenu (items + binaires +
+    ///     previews sur disque).
+    ///   - le contenu du folder `Default` (items + binaires + previews
+    ///     sur disque). Le folder lui-même reste, vide.
+    /// Préserve intégralement les folders `iCloudSynced=true` et leur
+    /// contenu — ils sont cloud-backed et la suppression locale serait
+    /// incohérente.
+    private func deleteLocalData() {
+        // Set des noms à conserver : Default + folders synced.
+        let keepFolderNames: Set<String> = Set(
+            [StoreKeys.defaultFolder] +
+            folders.filter { $0.iCloudSynced }.map(\.name)
+        )
+        // Set des noms dont on doit VIDER le contenu : Default (toujours)
+        // + tous les non-synced supprimés (leurs items vont disparaitre
+        // de toute façon, mais on profite de la passe pour nettoyer
+        // les binaires/previews disque associés).
+        let wipeContentFolderNames: Set<String> = Set(
+            folders.filter { !$0.iCloudSynced }.map(\.name)
+        ).union([StoreKeys.defaultFolder])
+        // Nettoyage disque des items concernés.
+        for item in items where wipeContentFolderNames.contains(item.folder) {
+            removeFileIfLocal(item.url)
+            removePreviewIfAny(item)
+        }
+        // Filtrage des arrays.
+        items.removeAll { wipeContentFolderNames.contains($0.folder) }
+        folders.removeAll { !keepFolderNames.contains($0.name) }
+        // Garantit que Default est toujours en tête (au cas où il aurait
+        // été retiré par erreur).
+        if !folders.contains(where: { $0.name == StoreKeys.defaultFolder }) {
+            folders.insert(Folder.systemDefault(), at: 0)
+        }
+        // Si la sélection courante a disparu, repli sur Default.
+        if let sel = selectedFolder, !folders.contains(where: { $0.name == sel }) {
+            selectedFolder = StoreKeys.defaultFolder
+        }
+        saveItems()
+        saveFolders()
+    }
+
+    /// Supprime les items dont le `folder` ne correspond à aucun
+    /// folder local existant. Appelé une fois au démarrage de l'app
+    /// (cf. `onAppear`). Idempotent : si tous les items pointent vers
+    /// un folder valide, no-op silencieux.
+    ///
+    /// Les binaires et previews associés sont aussi nettoyés du disque
+    /// pour éviter qu'ils restent comptés dans la taille « Local data ».
+    /// La suppression n'est pas propagée à CloudKit : si l'item était
+    /// dans un folder synced, il a déjà été supprimé du cloud lors de
+    /// la disparition du folder ; sinon il n'a jamais été poussé.
+    private func cleanupOrphanItems() {
+        let validNames = Set(folders.map(\.name))
+        let orphans = items.filter { !validNames.contains($0.folder) }
+        guard !orphans.isEmpty else { return }
+        for o in orphans {
+            removeFileIfLocal(o.url)
+            removePreviewIfAny(o)
+        }
+        items.removeAll { !validNames.contains($0.folder) }
+        saveItems()
+        print("[cleanupOrphanItems] removed \(orphans.count) orphan item(s)")
     }
 
     // MARK: - Item CRUD
@@ -2346,15 +2695,15 @@ struct ContentView: View {
         saveItems()
     }
 
-    /// Efface les vignettes (PNG sur disque + champ `previewPath`) de
+    /// Efface les aperçus (PNG sur disque + champ `previewPath`) de
     /// tous les items actuellement affichés. Au prochain pull-to-refresh
     /// ou tick du timer 100 ms, `triggerPendingPreviews` les régénère.
-    /// Regénère la vignette d'un seul item. Pour une URL, regénère
+    /// Regénère l'aperçu d'un seul item. Pour une URL, regénère
     /// AUSSI la date (Last-Modified) en parallèle — l'utilisateur voit
     /// la roue tourner à la place de l'icône (`isItemBusy` vrai grâce à
     /// `fetchingDateIDs`) ET « Fetching date… » à la place de la date
     /// pendant que la requête HTTP HEAD se fait.
-    /// Regénère uniquement la vignette d'un item, SANS toucher à la
+    /// Regénère uniquement l'aperçu d'un item, SANS toucher à la
     /// date Last-Modified — utile pour tous les types y compris les
     /// URLs quand l'utilisateur veut juste rafraîchir le visuel.
     private func regeneratePreviewOnly(for item: SharedItem) {
@@ -2443,7 +2792,7 @@ struct ContentView: View {
         }
     }
 
-    /// Vide les vignettes des items URL actuellement affichés. NE
+    /// Vide les aperçus des items URL actuellement affichés. NE
     /// touche PAS aux dates et NE relance AUCUNE régénération
     /// automatique : `previewPath` est posé à `""` (sentinelle
     /// « cleared / failed » que `triggerPendingPreviews` ignore).
@@ -2470,7 +2819,7 @@ struct ContentView: View {
         saveItems()
     }
 
-    /// Verrouille la vignette de tous les items URL actuellement
+    /// Verrouille l'aperçu de tous les items URL actuellement
     /// affichés : leur `previewLocked` passe à `true`, et toute
     /// régénération / effacement ultérieure les laissera intactes
     /// jusqu'à déverrouillage.
@@ -2511,10 +2860,60 @@ struct ContentView: View {
         saveItems()
     }
 
+    /// Bascule le zoom de la preview d'un item (×2 centré au rendu,
+    /// même taille de cadre dans l'UI). Indépendant du verrou et du
+    /// recadrage automatique : seul l'état booléen est persisté ;
+    /// l'image PNG dans `previews/` reste inchangée.
+    private func togglePreviewZoom(for item: SharedItem) {
+        guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[idx].previewZoomed = (items[idx].previewZoomed == true) ? nil : true
+        saveItems()
+    }
+
+    /// Active le zoom ×2 sur toutes les previews URL du folder courant
+    /// qui ne le sont pas déjà.
+    private func zoomPreviewsForCurrent() {
+        let ids = Set(currentItems.filter { $0.effectiveKind == "url" }.map(\.id))
+        guard !ids.isEmpty else { return }
+        var newItems = items
+        var changed = false
+        for idx in newItems.indices where ids.contains(newItems[idx].id)
+                                          && newItems[idx].previewZoomed != true {
+            newItems[idx].previewZoomed = true
+            changed = true
+        }
+        if changed { items = newItems; saveItems() }
+    }
+
+    /// Désactive le zoom ×2 sur toutes les previews URL du folder
+    /// courant qui le sont. Remet l'aperçu à son rendu standard.
+    private func unzoomPreviewsForCurrent() {
+        let ids = Set(currentItems.filter { $0.effectiveKind == "url" }.map(\.id))
+        guard !ids.isEmpty else { return }
+        var newItems = items
+        var changed = false
+        for idx in newItems.indices where ids.contains(newItems[idx].id)
+                                          && newItems[idx].previewZoomed == true {
+            newItems[idx].previewZoomed = nil
+            changed = true
+        }
+        if changed { items = newItems; saveItems() }
+    }
+
     /// Indique s'il existe au moins un item URL non verrouillé parmi
     /// ceux affichés (pour conditionner l'entrée de menu « Lock »).
     private var hasUnlockedURLInCurrent: Bool {
         currentItems.contains { $0.effectiveKind == "url" && $0.previewLocked != true }
+    }
+
+    /// Indique s'il y a au moins un item URL dans la vue courante.
+    /// Sert à conditionner l'affichage simultané des entrées de menu
+    /// « Zoom » et « Unzoom » : les deux opérations sont toujours
+    /// applicables à TOUS les items URL (zoom = forcer tous à zoomé,
+    /// unzoom = forcer tous à non-zoomé), indépendamment de l'état
+    /// individuel courant — pas de raison de cacher l'un ou l'autre.
+    private var hasURLItemsInCurrent: Bool {
+        currentItems.contains { $0.effectiveKind == "url" }
     }
 
     /// Indique s'il existe au moins un item URL verrouillé parmi ceux
@@ -2949,11 +3348,24 @@ struct ContentView: View {
     /// Génère lazily un aperçu PNG 320x200 pour chaque item qui n'en a
     /// pas encore. `previewPath == ""` signifie tentative déjà faite et
     /// échouée → on ne réessaie pas.
+    /// Race condition iCloud : si un item vient juste d'arriver via
+    /// pull CloudKit avec `previewPath = nil`, on attend 30 s avant de
+    /// régénérer localement, le temps que l'aperçu poussée par
+    /// l'autre appareil arrive elle aussi par pull (cf. CloudSync
+    /// `cloudPreviewWaitingItems`). Sans cette attente, l'iPhone
+    /// regénérait systématiquement l'aperçu en local en parallèle
+    /// du download CK, gaspillant 10-15 s de WKWebView pour finalement
+    /// écraser le résultat avec la version cloud.
     private func triggerPendingPreviews() {
         guard !autoTriggersPaused else { return }
+        let waiting = (defaults?.dictionary(forKey: "cloudPreviewWaitingItems") as? [String: Double]) ?? [:]
+        let now = Date().timeIntervalSince1970
         for item in items where item.previewPath == nil
                                 && item.previewLocked != true
                                 && !generatingPreviewIDs.contains(item.id) {
+            if let receivedAt = waiting[item.id], now - receivedAt < 30 {
+                continue // attendre que le cloud livre l'aperçu
+            }
             startPreviewGeneration(for: item)
         }
     }
@@ -3040,7 +3452,7 @@ struct ContentView: View {
             // (SFSpeechRecognizer utilise la locale courante) → pas de
             // traduction nécessaire.
             items[idx].translationDone = true
-            // Invalide la vignette précédente (icône waveform générée
+            // Invalide l'aperçu précédent (icône waveform générée
             // avant la transcription) pour qu'elle soit régénérée en
             // « page de texte » avec le transcript au prochain
             // triggerPendingPreviews. removePreviewIfAny supprime le
@@ -3314,8 +3726,19 @@ struct ContentView: View {
 
         // ===== Mode REPLACE =====
         if mode == .replace {
-            // Supprime les anciens fichiers du container.
-            for item in items { removeFileIfLocal(item.url) }
+            // Vide entièrement `SharedFiles/` (tous types : photos,
+            // vidéos, audios, fichiers) et `previews/` (PNG des
+            // aperçus). `restoreItems` recrée immédiatement après ce
+            // qui est dans le backup. Le wipe complet supprime aussi
+            // les éventuels orphelins déjà présents sur disque (items
+            // antérieurement effacés sans cleanup, résidus de bugs),
+            // ce qui correspond à la promesse du dialog « Replace
+            // deletes everything before restoring ».
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let previewDir = containerURL.appendingPathComponent("previews", isDirectory: true)
+            try? FileManager.default.removeItem(at: previewDir)
+            try? FileManager.default.createDirectory(at: previewDir, withIntermediateDirectories: true)
 
             // Réglages applicatifs.
             let appDefaults = UserDefaults.standard
@@ -3358,6 +3781,14 @@ struct ContentView: View {
                 selectedFolder = StoreKeys.defaultFolder
             }
             UserDefaults(suiteName: appGroup)?.set(selectedFolder, forKey: StoreKeys.selectedFolder)
+            // Force une resync iCloud après le REPLACE : importe les
+            // folders + items cloud absents du backup, nettoie les
+            // orphelins, et re-pousse le contenu des folders synced
+            // (s'il y en a, ce qui n'est pas le cas immédiatement
+            // après un REPLACE puisque tout repart `iCloudSynced=false`,
+            // mais reste utile pour aligner les états après que
+            // l'utilisateur ait réactivé la sync sur un folder).
+            runResyncReconcile()
             return
         }
 
@@ -3381,6 +3812,11 @@ struct ContentView: View {
                                   regenerateIDs: true)
         items.append(contentsOf: merged)
         saveItems()
+        // Force une resync iCloud après le MERGE : pareil que pour
+        // le REPLACE — convergence locale ↔ cloud (import des folders/
+        // items cloud manquants, cleanup orphelins, re-push idempotent
+        // des folders synced).
+        runResyncReconcile()
     }
 
     /// Écrit les binaires de `files` dans `dir` et retourne la liste d'items
@@ -3430,7 +3866,8 @@ struct ContentView: View {
                     ocrFailed: item.ocrFailed,
                     titleFetchFailed: item.titleFetchFailed,
                     aiFailed: item.aiFailed,
-                    previewLocked: item.previewLocked
+                    previewLocked: item.previewLocked,
+                    previewZoomed: item.previewZoomed
                 )
                 result[i] = copy
             }
@@ -4172,7 +4609,7 @@ struct ContentView: View {
     }
 
     private func retryFailedPreviews() {
-        // On ne retente QUE les vignettes avec `previewPath == ""`
+        // On ne retente QUE les aperçus avec `previewPath == ""`
         // (échec d'une tentative précédente OU effacement volontaire
         // via « Clear previews of these URLs ») des items actuellement
         // affichés dans la liste principale. Idem refresh des dates
@@ -4411,9 +4848,10 @@ struct ContentView: View {
                           let end = tag.range(of: "</title>") else {
                         cont.resume(returning: nil); return
                     }
-                    let t = tag[tag.index(after: start)..<end.lowerBound]
+                    let raw = tag[tag.index(after: start)..<end.lowerBound]
                         .trimmingCharacters(in: .whitespacesAndNewlines)
-                    cont.resume(returning: t.isEmpty ? nil : String(t))
+                    let decoded = Self.decodeHTMLEntities(String(raw))
+                    cont.resume(returning: decoded.isEmpty ? nil : decoded)
                 }
                 dataTask.resume()
             }
@@ -4937,7 +5375,7 @@ enum PreviewGenerator {
             image = await renderVideo(urlString: item.url)
         case "audio":
             // Si la transcription speech-to-text est terminée et a
-            // produit un texte, on rend une vignette type « page »
+            // produit un texte, on rend un aperçu type « page »
             // identique au type texte. Sinon (transcription pas
             // encore finie ou échouée), on retombe sur l'icône
             // waveform.
@@ -5893,7 +6331,7 @@ struct ZoomableScrollView<Content: View>: UIViewRepresentable {
     }
 }
 
-/// Vignette compacte affichée à droite d'une ligne de la liste
+/// Aperçu compact affichée à droite d'une ligne de la liste
 /// principale. Cache local pour éviter le re-décodage à chaque tick du
 /// timer de rechargement (sans ce cache : clignotement).
 struct RowThumbnail: View {
@@ -5906,6 +6344,13 @@ struct RowThumbnail: View {
             if let img = cached {
                 Image(uiImage: img)
                     .resizable()
+                    // Zoom ×2 centré : `scaleEffect` agrandit le rendu
+                    // sans changer le frame de mise en page, et le
+                    // `.clipped()` à l'extérieur recadre. L'aperçu
+                    // garde donc strictement la même taille dans la
+                    // ligne, mais on voit 2× plus gros le centre.
+                    .scaleEffect(item.previewZoomed == true ? 2.0 : 1.0)
+                    .clipped()
             } else {
                 Color(.tertiarySystemFill)
             }
@@ -5917,6 +6362,18 @@ struct RowThumbnail: View {
                     .foregroundStyle(.white)
                     .padding(3)
                     .background(.black.opacity(0.55), in: Circle())
+                    .padding(3)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if item.previewZoomed == true {
+                Text("×2")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(.black.opacity(0.55), in: Capsule())
                     .padding(3)
             }
         }
@@ -5952,6 +6409,9 @@ private struct PreviewTile: View {
                     Image(uiImage: img)
                         .resizable()
                         .aspectRatio(320.0 / 200.0, contentMode: .fit)
+                        // Zoom ×2 centré, idem RowThumbnail. Le
+                        // `clipShape` plus bas recadre.
+                        .scaleEffect(item.previewZoomed == true ? 2.0 : 1.0)
                 } else {
                     Rectangle()
                         .fill(Color(.tertiarySystemFill))
@@ -5971,6 +6431,18 @@ private struct PreviewTile: View {
                         .foregroundStyle(.white)
                         .padding(5)
                         .background(.black.opacity(0.55), in: Circle())
+                        .padding(6)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if item.previewZoomed == true {
+                    Text("×2")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(.black.opacity(0.55), in: Capsule())
                         .padding(6)
                 }
             }
@@ -6046,10 +6518,27 @@ final class BackgroundTasksMonitor: ObservableObject {
 
 struct StatsPanelView: View {
     let appGroup: String
+    /// Callbacks fournis par ContentView pour les menus contextuels
+    /// déclenchés par un appui long sur les lignes. On passe par
+    /// closures plutôt que par accès direct au state du parent : la
+    /// StatsPanelView reste isolée et ses re-renders ne provoquent
+    /// pas de re-render du ContentView.
+    var onDeleteLocalData: () -> Void = {}
+    var onResyncICloud: () -> Void = {}
+    var onResetAICounters: () -> Void = {}
 
     @State private var appDataBytes: Int64 = 0
     @State private var appDataComputing: Bool = false
     @State private var statsTick: Int = 0
+    /// Octets uploadés dans iCloud pour cette app — somme des
+    /// binaires (`SharedFiles/`) et previews (`previews/`) des items
+    /// dont le folder est marqué `iCloudSynced=true`. Approximation
+    /// locale : CloudKit ne fournit pas d'API de quota par container.
+    @State private var iCloudBytes: Int64 = 0
+    /// Vrai s'il y a au moins un folder synchronisé localement.
+    /// Conditionne l'affichage de la ligne iCloud.
+    @State private var hasSyncedFolder: Bool = false
+    @State private var iCloudComputing: Bool = false
     @ObservedObject private var tasks = BackgroundTasksMonitor.shared
 
     var body: some View {
@@ -6092,7 +6581,7 @@ struct StatsPanelView: View {
             HStack(spacing: 8) {
                 Image(systemName: "internaldrive")
                     .foregroundColor(.blue)
-                Text("App data")
+                Text("Local data")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                 Spacer()
@@ -6100,6 +6589,40 @@ struct StatsPanelView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .monospacedDigit()
+            }
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button(role: .destructive) {
+                    onDeleteLocalData()
+                } label: {
+                    Label("Delete local data", systemImage: "trash")
+                }
+            }
+            if hasSyncedFolder {
+                HStack(spacing: 8) {
+                    Image(systemName: "icloud.fill")
+                        .foregroundColor(.blue)
+                    Text("iCloud")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    Spacer()
+                    Text(formatBytes(iCloudBytes))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                }
+                .contentShape(Rectangle())
+                .contextMenu {
+                    Button {
+                        onResyncICloud()
+                    } label: {
+                        Label("Resync iCloud", systemImage: "arrow.triangle.2.circlepath.icloud")
+                    }
+                }
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .move(edge: .top)),
+                    removal: .opacity.combined(with: .move(edge: .top))
+                ))
             }
 
             let providers = AICounters.providersWithCalls()
@@ -6154,6 +6677,14 @@ struct StatsPanelView: View {
                                 .contentTransition(.numericText(value: Double(s.tokensOut)))
                         }
                     }
+                    .contentShape(Rectangle())
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            onResetAICounters()
+                        } label: {
+                            Label("Reset AI counters", systemImage: "gauge.with.dots.needle.0percent")
+                        }
+                    }
                     .transition(.asymmetric(
                         insertion: .opacity.combined(with: .move(edge: .top)),
                         removal: .opacity
@@ -6167,14 +6698,18 @@ struct StatsPanelView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .animation(.easeInOut(duration: 0.5), value: providersSignature)
         .animation(.easeInOut(duration: 0.5), value: appDataBytes)
-        // Pilote l'apparition/disparition smooth de la ligne
-        // « Background tasks » : c'est la transition booléenne
-        // (présent ↔ absent) qui doit être animée, pas le compteur
-        // numérique (lui est animé par contentTransition).
+        .animation(.easeInOut(duration: 0.5), value: iCloudBytes)
+        // Pilote l'apparition/disparition smooth des lignes
+        // conditionnelles (« Background tasks », « iCloud »).
         .animation(.easeInOut(duration: 0.5), value: tasks.activeCount > 0)
-        .onAppear { recomputeAppDataBytes() }
+        .animation(.easeInOut(duration: 0.5), value: hasSyncedFolder)
+        .onAppear {
+            recomputeAppDataBytes()
+            recomputeICloudBytes()
+        }
         .onReceive(Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()) { _ in
             recomputeAppDataBytes()
+            recomputeICloudBytes()
             statsTick &+= 1
         }
     }
@@ -6199,6 +6734,68 @@ struct StatsPanelView: View {
             await MainActor.run {
                 appDataBytes = total
                 appDataComputing = false
+            }
+        }
+    }
+
+    /// Calcule la taille uploadée dans iCloud pour cette app, en
+    /// sommant les binaires (`SharedFiles/`) et les previews
+    /// (`previews/`) des items dont le folder est marqué
+    /// `iCloudSynced=true`. Pas d'API CloudKit pour le quota par
+    /// container, donc on se base sur l'état local des items
+    /// synchronisés — exact tant que les pushes ne sont pas
+    /// en retard.
+    private func recomputeICloudBytes() {
+        guard !iCloudComputing else { return }
+        iCloudComputing = true
+        let group = appGroup
+        Task.detached(priority: .utility) {
+            var total: Int64 = 0
+            var hasSynced = false
+            if let d = UserDefaults(suiteName: group),
+               let container = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: group) {
+                // 1. Identifier les folders synced.
+                var syncedNames: Set<String> = []
+                if let data = d.data(forKey: "folders"),
+                   let arr = try? JSONDecoder().decode([Folder].self, from: data) {
+                    for f in arr where f.iCloudSynced {
+                        syncedNames.insert(f.name)
+                    }
+                }
+                hasSynced = !syncedNames.isEmpty
+                // 2. Pour chaque item dans un folder synced : binaire + preview.
+                if hasSynced,
+                   let data = d.data(forKey: "items"),
+                   let items = try? JSONDecoder().decode([SharedItem].self, from: data) {
+                    let previewsDir = container.appendingPathComponent("previews",
+                                                                       isDirectory: true)
+                    for item in items where syncedNames.contains(item.folder) {
+                        // Binaire : `url` commence par `file://` pour
+                        // les items kind file/photo/video/audio.
+                        if let u = URL(string: item.url), u.isFileURL {
+                            if let attr = try? FileManager.default.attributesOfItem(atPath: u.path),
+                               let size = attr[.size] as? NSNumber {
+                                total += size.int64Value
+                            }
+                        }
+                        // Preview PNG.
+                        if let p = item.previewPath, !p.isEmpty {
+                            let url = previewsDir.appendingPathComponent(p)
+                            if let attr = try? FileManager.default.attributesOfItem(atPath: url.path),
+                               let size = attr[.size] as? NSNumber {
+                                total += size.int64Value
+                            }
+                        }
+                    }
+                }
+            }
+            let finalTotal = total
+            let finalHasSynced = hasSynced
+            await MainActor.run {
+                iCloudBytes = finalTotal
+                hasSyncedFolder = finalHasSynced
+                iCloudComputing = false
             }
         }
     }

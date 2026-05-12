@@ -50,6 +50,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // CloudSync vérifie qu'il y a effectivement un changement
         // via le `serverChangeToken` ; aucun trafic inutile en cas
         // de payload non pertinent.
+        let ts = ISO8601DateFormatter().string(from: Date())
+        print("[CloudSync][\(ts)][\(UIDevice.current.name)] AppDelegate: didReceiveRemoteNotification → triggering pull")
         Task {
             await CloudSync.shared.pullChanges()
             completionHandler(.newData)
