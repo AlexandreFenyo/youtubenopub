@@ -858,7 +858,7 @@ struct ContentView: View {
             isPresented: $showDeleteLocalConfirm,
             titleVisibility: .visible
         ) {
-            Button("Delete local data", role: .destructive) { deleteLocalData() }
+            Button("Delete only local data", role: .destructive) { deleteLocalData() }
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Delete local data — body")
@@ -1524,7 +1524,7 @@ struct ContentView: View {
             Button(role: .destructive) {
                 showDeleteLocalConfirm = true
             } label: {
-                Label("Delete local data", systemImage: "trash")
+                Label("Delete only local data", systemImage: "trash")
             }
             if !AICounters.providersWithCalls().isEmpty {
                 Divider()
@@ -6595,7 +6595,7 @@ struct StatsPanelView: View {
                 Button(role: .destructive) {
                     onDeleteLocalData()
                 } label: {
-                    Label("Delete local data", systemImage: "trash")
+                    Label("Delete only local data", systemImage: "trash")
                 }
             }
             if hasSyncedFolder {

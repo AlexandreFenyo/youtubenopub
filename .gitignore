@@ -19,3 +19,6 @@ Pods/
 
 # Demo data backup used to populate the app for App Store screenshots
 ShareManager/Sharedemo.json
+
+# App Store screenshots (large PNGs, kept out of the repo)
+pictures/
