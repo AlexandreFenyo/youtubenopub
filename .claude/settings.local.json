@@ -63,7 +63,11 @@
       "Bash(plutil -lint /Volumes/external-mac/fenyo/git3/youtubenopub/ShareWidget/Info.plist /Volumes/external-mac/fenyo/git3/youtubenopub/ShareWidget/ShareWidget.entitlements)",
       "Bash(xcrun simctl *)",
       "Bash(open -a Simulator)",
-      "Bash(xcodebuild -project ShareManager.xcodeproj -scheme ShareManager -sdk iphonesimulator -configuration Debug -destination 'generic/platform=iOS Simulator' build)"
+      "Bash(xcodebuild -project ShareManager.xcodeproj -scheme ShareManager -sdk iphonesimulator -configuration Debug -destination 'generic/platform=iOS Simulator' build)",
+      "Bash(grep -nC 1 -i \"vignette\" /Volumes/external-mac/fenyo/git3/youtubenopub/ShareManager/CloudSync.swift)",
+      "Bash(grep -nC 0 -i \"vignette\" /Volumes/external-mac/fenyo/git3/youtubenopub/ShareManager/ContentView.swift)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)"
     ]
   }
 }
