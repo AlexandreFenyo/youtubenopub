@@ -30691,12 +30691,89 @@
       }
     },
     "Resync iCloud": {
-      "extractionState": "stale",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة مزامنة iCloud"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud পুনঃসিঙ্ক"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tornar a sincronitzar iCloud"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Znovu synchronizovat iCloud"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synkroniser iCloud igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud erneut synchronisieren"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Επανασυγχρονισμός iCloud"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Resync iCloud"
+          }
+        },
+        "en-AU": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resync iCloud"
+          }
+        },
+        "en-CA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resync iCloud"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resync iCloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a sincronizar iCloud"
+          }
+        },
+        "es-MX": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a sincronizar iCloud"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synkronoi iCloud uudelleen"
           }
         },
         "fr": {
@@ -30704,15 +30781,297 @@
             "state": "translated",
             "value": "Resynchroniser iCloud"
           }
+        },
+        "fr-CA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resynchroniser iCloud"
+          }
+        },
+        "gu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud પુનઃસિંક કરો"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "סנכרן מחדש את iCloud"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud पुनः सिंक करें"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovno sinkroniziraj iCloud"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud újraszinkronizálása"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sinkronkan ulang iCloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risincronizza iCloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud を再同期"
+          }
+        },
+        "kn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud ಮರು-ಸಿಂಕ್ ಮಾಡಿ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 다시 동기화"
+          }
+        },
+        "ml": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud വീണ്ടും സിങ്ക് ചെയ്യുക"
+          }
+        },
+        "mr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud पुन्हा सिंक करा"
+          }
+        },
+        "ms": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segerakkan semula iCloud"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synkroniser iCloud på nytt"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud opnieuw synchroniseren"
+          }
+        },
+        "or": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud ପୁନଃ ସିଙ୍କ କରନ୍ତୁ"
+          }
+        },
+        "pa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud ਮੁੜ-ਸਿੰਕ ਕਰੋ"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponownie zsynchronizuj iCloud"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voltar a sincronizar o iCloud"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resincronizează iCloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторно синхронизировать iCloud"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Znovu synchronizovať iCloud"
+          }
+        },
+        "sl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Znova sinhroniziraj iCloud"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synkronisera iCloud igen"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud-ஐ மீண்டும் ஒத்திசை"
+          }
+        },
+        "te": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloudను మళ్లీ సింక్ చేయండి"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซิงค์ iCloud อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud’u yeniden eşitle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторно синхронізувати iCloud"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud دوبارہ سنک کریں"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đồng bộ lại iCloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新同步 iCloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新同步 iCloud"
+          }
         }
       }
     },
     "Resync iCloud — body": {
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ستوفّق هذه العملية بين حالتك المحلية وiCloud. ستُحذف العناصر اليتيمة، وستُستورد المجلدات والعناصر المفقودة، وسيُعاد رفع كل المحتوى المتزامن. قد يستغرق ذلك بضع ثوانٍ حسب حجم المحتوى."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "এই অপারেশন আপনার লোকাল অবস্থা iCloud-এর সঙ্গে মিলিয়ে নেবে। অনাথ আইটেম মুছে যাবে, অনুপস্থিত ফোল্ডার ও আইটেম আমদানি হবে, এবং সমস্ত সিঙ্ক করা কনটেন্ট পুনরায় আপলোড হবে। কনটেন্টের আকার অনুযায়ী এতে কয়েক সেকেন্ড লাগতে পারে।"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aquesta operació reconciliarà el teu estat local amb iCloud. Es netejaran els elements orfes, s'importaran les carpetes i elements que falten, i tot el contingut sincronitzat es tornarà a pujar. Pot trigar uns segons segons la mida del teu contingut."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tato operace sjednotí váš místní stav s iCloudem. Osamělé položky budou odstraněny, chybějící složky a položky budou importovány a veškerý synchronizovaný obsah bude znovu nahrán. Může to trvat několik sekund podle velikosti obsahu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne handling vil afstemme din lokale tilstand med iCloud. Forældreløse elementer vil blive ryddet, manglende mapper og elementer vil blive importeret, og alt synkroniseret indhold vil blive uploadet igen. Dette kan tage et par sekunder afhængigt af indholdets størrelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Vorgang gleicht deinen lokalen Zustand mit iCloud ab. Verwaiste Elemente werden bereinigt, fehlende Ordner und Elemente importiert und alle synchronisierten Inhalte erneut hochgeladen. Je nach Größe deiner Inhalte kann dies einige Sekunden dauern."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Αυτή η ενέργεια θα συμφιλιώσει την τοπική σας κατάσταση με το iCloud. Τα ορφανά στοιχεία θα διαγραφούν, οι φάκελοι και τα στοιχεία που λείπουν θα εισαχθούν και όλο το συγχρονισμένο περιεχόμενο θα ανανεωθεί. Αυτό μπορεί να διαρκέσει μερικά δευτερόλεπτα ανάλογα με το μέγεθος του περιεχομένου σας."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This will reconcile your local state with iCloud. Orphan items will be cleaned up, missing folders and items will be imported, and all synced content will be re-uploaded. This may take a few seconds depending on the size of your content."
+          }
+        },
+        "en-AU": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will reconcile your local state with iCloud. Orphan items will be cleaned up, missing folders and items will be imported, and all synced content will be re-uploaded. This may take a few seconds depending on the size of your content."
+          }
+        },
+        "en-CA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will reconcile your local state with iCloud. Orphan items will be cleaned up, missing folders and items will be imported, and all synced content will be re-uploaded. This may take a few seconds depending on the size of your content."
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will reconcile your local state with iCloud. Orphan items will be cleaned up, missing folders and items will be imported, and all synced content will be re-uploaded. This may take a few seconds depending on the size of your content."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta operación reconciliará tu estado local con iCloud. Los elementos huérfanos se eliminarán, las carpetas e elementos que falten se importarán, y todo el contenido sincronizado se volverá a subir. Esto puede tardar unos segundos según el tamaño de tu contenido."
+          }
+        },
+        "es-MX": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta operación reconciliará tu estado local con iCloud. Los elementos huérfanos se eliminarán, las carpetas e elementos faltantes se importarán, y todo el contenido sincronizado se volverá a subir. Esto puede tardar unos segundos según el tamaño de tu contenido."
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tämä toiminto sovittaa paikallisen tilan yhteen iCloudin kanssa. Orpojen kohteet poistetaan, puuttuvat kansiot ja kohteet tuodaan, ja kaikki synkronoitu sisältö ladataan uudelleen. Tämä voi kestää muutamia sekunteja sisällön koosta riippuen."
           }
         },
         "fr": {
@@ -30720,22 +31079,507 @@
             "state": "translated",
             "value": "Cette opération va réconcilier votre état local avec iCloud. Les items orphelins seront supprimés, les folders et items manquants seront importés, et tout le contenu synchronisé sera ré-envoyé. Cela peut prendre quelques secondes selon la taille de votre contenu."
           }
+        },
+        "fr-CA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette opération va réconcilier votre état local avec iCloud. Les éléments orphelins seront supprimés, les dossiers et éléments manquants seront importés, et tout le contenu synchronisé sera renvoyé. Cela peut prendre quelques secondes selon la taille de votre contenu."
+          }
+        },
+        "gu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "આ ક્રિયા તમારી લોકલ સ્થિતિને iCloud સાથે મેળવશે. અનાથ આઇટમ્સ સાફ થશે, ગુમ થયેલા ફોલ્ડર્સ અને આઇટમ્સ આયાત થશે, અને બધી સિન્ક કરેલી સામગ્રી ફરી અપલોડ થશે. તમારી સામગ્રીના કદ આધારે આ કેટલીક સેકન્ડ લાગી શકે છે."
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "פעולה זו תיישב את המצב המקומי שלך עם iCloud. פריטים יתומים יימחקו, תיקיות ופריטים חסרים ייובאו, וכל התוכן המסונכרן יועלה מחדש. הדבר עשוי לקחת מספר שניות בהתאם לגודל התוכן שלך."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "यह आपकी स्थानीय स्थिति को iCloud के साथ मिलाएगा। अनाथ आइटम साफ हो जाएंगे, गुम फ़ोल्डर और आइटम आयात किए जाएंगे, और सभी सिंक की गई सामग्री फिर से अपलोड होगी। यह आपकी सामग्री के आकार के अनुसार कुछ सेकंड ले सकता है।"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova radnja uskladit će vaše lokalno stanje s iCloudom. Osamljene stavke bit će uklonjene, mape i stavke koje nedostaju bit će uvezene, a svi sinkronizirani sadržaji bit će ponovno učitani. Ovo može potrajati nekoliko sekundi ovisno o veličini vašeg sadržaja."
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ez a művelet összehangolja a helyi állapotot az iClouddal. Az árva elemek törlődnek, a hiányzó mappák és elemek importálódnak, és az összes szinkronizált tartalom újra feltöltődik. Ez néhány másodpercig tarthat a tartalom méretétől függően."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tindakan ini akan merekonsiliasi status lokal Anda dengan iCloud. Item yatim akan dibersihkan, folder dan item yang hilang akan diimpor, dan semua konten yang disinkronkan akan diunggah ulang. Ini mungkin memakan beberapa detik tergantung ukuran konten Anda."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa operazione riconcilierà lo stato locale con iCloud. Gli elementi orfani verranno rimossi, le cartelle e gli elementi mancanti verranno importati e tutto il contenuto sincronizzato verrà ricaricato. Potrebbero volerci alcuni secondi a seconda della dimensione dei contenuti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この操作はローカル状態と iCloud を整合させます。孤立した項目は削除され、不足しているフォルダや項目はインポートされ、同期されたすべてのコンテンツが再アップロードされます。コンテンツのサイズによって数秒かかる場合があります。"
+          }
+        },
+        "kn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ಈ ಕ್ರಿಯೆ ನಿಮ್ಮ ಸ್ಥಳೀಯ ಸ್ಥಿತಿಯನ್ನು iCloud ಜೊತೆ ಸಮನ್ವಯಗೊಳಿಸುತ್ತದೆ. ಅನಾಥ ಐಟಂಗಳು ತೆಗೆದು ಹಾಕಲ್ಪಡುತ್ತವೆ, ಕಾಣದಿರುವ ಫೋಲ್ಡರ್‌ಗಳು ಮತ್ತು ಐಟಂಗಳು ಆಮದು ಮಾಡಲಾಗುತ್ತವೆ, ಮತ್ತು ಎಲ್ಲಾ ಸಿಂಕ್ ಮಾಡಿದ ವಿಷಯವನ್ನು ಮರು ಅಪ್‌ಲೋಡ್ ಮಾಡಲಾಗುತ್ತದೆ. ನಿಮ್ಮ ವಿಷಯದ ಗಾತ್ರವನ್ನು ಆಧರಿಸಿ ಕೆಲವು ಸೆಕೆಂಡುಗಳಷ್ಟು ಸಮಯ ತೆಗೆದುಕೊಳ್ಳಬಹುದು."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 작업은 로컬 상태를 iCloud와 일치시킵니다. 고아 항목은 정리되고, 누락된 폴더와 항목은 가져오며, 모든 동기화된 콘텐츠가 다시 업로드됩니다. 콘텐츠 크기에 따라 몇 초가 걸릴 수 있습니다."
+          }
+        },
+        "ml": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ഈ പ്രവർത്തനം നിങ്ങളുടെ ലോക്കൽ അവസ്ഥയെ iCloud-മായി പൊരുത്തപ്പെടുത്തും. അനാഥ ഇനങ്ങൾ നീക്കം ചെയ്യപ്പെടും, നഷ്ടപ്പെട്ട ഫോൾഡറുകളും ഇനങ്ങളും ഇറക്കുമതി ചെയ്യപ്പെടും, എല്ലാ സിങ്ക് ചെയ്ത ഉള്ളടക്കവും വീണ്ടും അപ്‌ലോഡ് ചെയ്യപ്പെടും. ഇത് നിങ്ങളുടെ ഉള്ളടക്കത്തിന്റെ വലുപ്പത്തെ ആശ്രയിച്ച് കുറച്ച് സെക്കൻഡുകൾ എടുക്കാം."
+          }
+        },
+        "mr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ही क्रिया तुमची स्थानिक स्थिती iCloud सोबत समेट करेल. अनाथ आयटम साफ केले जातील, गहाळ फोल्डर आणि आयटम आयात केले जातील, आणि सर्व सिंक केलेली सामग्री पुन्हा अपलोड केली जाईल. तुमच्या सामग्रीच्या आकारानुसार यास काही सेकंद लागू शकतात."
+          }
+        },
+        "ms": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tindakan ini akan menyelaraskan keadaan tempatan anda dengan iCloud. Item yatim akan dibersihkan, folder dan item yang hilang akan diimport, dan semua kandungan disegerakkan akan dimuat naik semula. Ini mungkin mengambil beberapa saat bergantung pada saiz kandungan anda."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne handlingen vil avstemme din lokale tilstand med iCloud. Foreldreløse elementer vil bli ryddet opp, manglende mapper og elementer vil bli importert, og alt synkronisert innhold vil bli lastet opp på nytt. Dette kan ta noen sekunder avhengig av størrelsen på innholdet ditt."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deze actie zal je lokale toestand afstemmen met iCloud. Verweesde items worden opgeruimd, ontbrekende mappen en items worden geïmporteerd, en alle gesynchroniseerde inhoud wordt opnieuw geüpload. Dit kan enkele seconden duren afhankelijk van de grootte van je inhoud."
+          }
+        },
+        "or": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ଏହି କ୍ରିୟା ଆପଣଙ୍କ ସ୍ଥାନୀୟ ସ୍ଥିତିକୁ iCloud ସହିତ ମିଳାଇବ। ଅନାଥ ଆଇଟମ୍ ସଫା ହେବ, ଅନୁପସ୍ଥିତ ଫୋଲ୍ଡର ଏବଂ ଆଇଟମ୍ ଆମଦାନୀ ହେବ, ଏବଂ ସମସ୍ତ ସିଙ୍କ ହୋଇଥିବା ସାମଗ୍ରୀ ପୁନଃ ଅପଲୋଡ୍ ହେବ। ଆପଣଙ୍କ ସାମଗ୍ରୀ ର ଆକାର ଉପରେ ନିର୍ଭର କରି ଏହା କିଛି ସେକେଣ୍ଡ ନେଇପାରେ।"
+          }
+        },
+        "pa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ਇਹ ਕਾਰਵਾਈ ਤੁਹਾਡੀ ਲੋਕਲ ਸਥਿਤੀ ਨੂੰ iCloud ਨਾਲ ਮੇਲ ਖਾਵੇਗੀ। ਅਨਾਥ ਆਈਟਮਾਂ ਸਾਫ਼ ਕੀਤੀਆਂ ਜਾਣਗੀਆਂ, ਗੁੰਮਸ਼ੁਦਾ ਫੋਲਡਰ ਅਤੇ ਆਈਟਮਾਂ ਆਯਾਤ ਕੀਤੀਆਂ ਜਾਣਗੀਆਂ, ਅਤੇ ਸਾਰੀ ਸਿੰਕ ਕੀਤੀ ਸਮੱਗਰੀ ਮੁੜ-ਅਪਲੋਡ ਕੀਤੀ ਜਾਵੇਗੀ। ਤੁਹਾਡੀ ਸਮੱਗਰੀ ਦੇ ਆਕਾਰ ਅਨੁਸਾਰ ਇਹ ਕੁਝ ਸਕਿੰਟ ਲੈ ਸਕਦੀ ਹੈ।"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta operacja uzgodni Twój stan lokalny z iCloud. Osierocone elementy zostaną usunięte, brakujące foldery i elementy zostaną zaimportowane, a cała zsynchronizowana zawartość zostanie ponownie przesłana. Może to potrwać kilka sekund w zależności od rozmiaru zawartości."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta operação reconcilia o estado local com o iCloud. Itens órfãos serão removidos, pastas e itens em falta serão importados, e todo o conteúdo sincronizado será reenviado. Pode demorar alguns segundos consoante o tamanho do seu conteúdo."
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Această operațiune va reconcilia starea locală cu iCloud. Elementele orfane vor fi curățate, folderele și elementele lipsă vor fi importate, iar tot conținutul sincronizat va fi reîncărcat. Aceasta poate dura câteva secunde, în funcție de dimensiunea conținutului."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта операция согласует ваше локальное состояние с iCloud. Осиротевшие элементы будут удалены, отсутствующие папки и элементы будут импортированы, а весь синхронизированный контент будет загружен повторно. Это может занять несколько секунд в зависимости от размера контента."
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Táto operácia zosúladí váš lokálny stav s iCloudom. Osirotené položky budú odstránené, chýbajúce priečinky a položky budú importované a všetok synchronizovaný obsah bude znovu nahraný. Môže to trvať niekoľko sekúnd v závislosti od veľkosti obsahu."
+          }
+        },
+        "sl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To dejanje bo uskladilo vaše lokalno stanje z iCloudom. Osamljeni elementi bodo počiščeni, manjkajoče mape in elementi bodo uvoženi, vsa sinhronizirana vsebina pa bo ponovno naložena. To lahko traja nekaj sekund, odvisno od velikosti vsebine."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denna åtgärd kommer att stämma av ditt lokala tillstånd med iCloud. Föräldralösa objekt rensas, saknade mappar och objekt importeras, och allt synkroniserat innehåll laddas upp på nytt. Detta kan ta några sekunder beroende på storleken på ditt innehåll."
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "இந்தச் செயல்பாடு உங்கள் உள்ளூர் நிலையை iCloud உடன் சரிசெய்யும். அநாதை உருப்படிகள் சுத்தம் செய்யப்படும், காணாமல் போன கோப்புறைகளும் உருப்படிகளும் இறக்குமதி செய்யப்படும், மேலும் ஒத்திசைக்கப்பட்ட எல்லா உள்ளடக்கமும் மீண்டும் பதிவேற்றப்படும். உள்ளடக்கத்தின் அளவைப் பொறுத்து இது சில வினாடிகள் ஆகலாம்."
+          }
+        },
+        "te": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ఈ ఆపరేషన్ మీ స్థానిక స్థితిని iCloud తో సమతుల్యం చేస్తుంది. అనాథ అంశాలు తొలగించబడతాయి, లేని ఫోల్డర్‌లు మరియు అంశాలు దిగుమతి చేయబడతాయి, మరియు సింక్ చేసిన మొత్తం కంటెంట్ తిరిగి అప్‌లోడ్ చేయబడుతుంది. మీ కంటెంట్ పరిమాణం ఆధారంగా ఇది కొన్ని సెకన్లు పట్టవచ్చు."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การดำเนินการนี้จะปรับสถานะในเครื่องของคุณให้ตรงกับ iCloud รายการกำพร้าจะถูกล้าง โฟลเดอร์และรายการที่ขาดหายไปจะถูกนำเข้า และเนื้อหาที่ซิงค์ทั้งหมดจะถูกอัปโหลดใหม่ อาจใช้เวลาไม่กี่วินาทีขึ้นอยู่กับขนาดของเนื้อหา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu işlem yerel durumunuzu iCloud ile uzlaştırır. Yetim öğeler temizlenir, eksik klasörler ve öğeler içe aktarılır ve tüm eşitlenmiş içerik yeniden yüklenir. İçeriğinizin boyutuna bağlı olarak birkaç saniye sürebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця операція узгодить ваш локальний стан з iCloud. Сиротливі елементи будуть очищені, відсутні теки та елементи будуть імпортовані, а весь синхронізований вміст буде завантажений повторно. Це може зайняти кілька секунд залежно від розміру вмісту."
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "یہ کارروائی آپ کی مقامی حالت کو iCloud کے ساتھ ہم آہنگ کرے گی۔ یتیم آئٹمز صاف ہو جائیں گے، غیر موجود فولڈرز اور آئٹمز درآمد کیے جائیں گے، اور تمام مطابقت پذیر مواد دوبارہ اپ لوڈ کیا جائے گا۔ آپ کے مواد کے حجم پر منحصر اس میں چند سیکنڈ لگ سکتے ہیں۔"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thao tác này sẽ điều hòa trạng thái cục bộ của bạn với iCloud. Các mục mồ côi sẽ được dọn dẹp, các thư mục và mục còn thiếu sẽ được nhập, và tất cả nội dung đã đồng bộ sẽ được tải lên lại. Quá trình này có thể mất vài giây tùy theo kích thước nội dung của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此操作会将你的本地状态与 iCloud 进行协调。孤立项目将被清除,缺失的文件夹和项目将被导入,所有已同步的内容将被重新上传。根据内容大小,此操作可能需要几秒钟。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此操作會將你的本機狀態與 iCloud 協調。孤立項目將被清除,缺少的檔案夾與項目將會匯入,所有已同步的內容將會重新上傳。視你的內容大小而定,可能需要數秒。"
+          }
         }
       }
     },
     "Resync iCloud — confirm": {
-      "extractionState": "stale",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة مزامنة iCloud؟"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud পুনঃসিঙ্ক করবেন?"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tornar a sincronitzar iCloud?"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Znovu synchronizovat iCloud?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synkroniser iCloud igen?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud erneut synchronisieren?"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Επανασυγχρονισμός iCloud;"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Resync iCloud?"
           }
         },
+        "en-AU": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resync iCloud?"
+          }
+        },
+        "en-CA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resync iCloud?"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resync iCloud?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Volver a sincronizar iCloud?"
+          }
+        },
+        "es-MX": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Volver a sincronizar iCloud?"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synkronoidaanko iCloud uudelleen?"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Resynchroniser iCloud ?"
+          }
+        },
+        "fr-CA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resynchroniser iCloud ?"
+          }
+        },
+        "gu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud પુનઃસિંક કરવું છે?"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "לסנכרן מחדש את iCloud?"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud पुनः सिंक करें?"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovno sinkronizirati iCloud?"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud újraszinkronizálása?"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sinkronkan ulang iCloud?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risincronizzare iCloud?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud を再同期しますか?"
+          }
+        },
+        "kn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud ಅನ್ನು ಮರು-ಸಿಂಕ್ ಮಾಡಬೇಕೆ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud를 다시 동기화하시겠습니까?"
+          }
+        },
+        "ml": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud വീണ്ടും സിങ്ക് ചെയ്യണോ?"
+          }
+        },
+        "mr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud पुन्हा सिंक करायचे?"
+          }
+        },
+        "ms": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segerakkan semula iCloud?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synkronisere iCloud på nytt?"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud opnieuw synchroniseren?"
+          }
+        },
+        "or": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud ପୁନଃ ସିଙ୍କ କରନ୍ତୁ?"
+          }
+        },
+        "pa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud ਮੁੜ-ਸਿੰਕ ਕਰਨਾ ਹੈ?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponownie zsynchronizować iCloud?"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voltar a sincronizar o iCloud?"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resincronizați iCloud?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторно синхронизировать iCloud?"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Znovu synchronizovať iCloud?"
+          }
+        },
+        "sl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Znova sinhronizirati iCloud?"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synkronisera iCloud igen?"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud-ஐ மீண்டும் ஒத்திசைக்கவா?"
+          }
+        },
+        "te": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloudను మళ్లీ సింక్ చేయాలా?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซิงค์ iCloud อีกครั้งหรือไม่?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud yeniden eşitlensin mi?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторно синхронізувати iCloud?"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud دوبارہ سنک کریں؟"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đồng bộ lại iCloud?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新同步 iCloud?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新同步 iCloud?"
           }
         }
       }
@@ -37544,12 +38388,89 @@
       }
     },
     "Unzoom preview": {
-      "extractionState": "stale",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصغير المعاينة"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "প্রিভিউ আনজুম করুন"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduir l'avançament"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oddálit náhled"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom forhåndsvisning ud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau verkleinern"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Σμίκρυνση προεπισκόπησης"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Unzoom preview"
+          }
+        },
+        "en-AU": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unzoom preview"
+          }
+        },
+        "en-CA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unzoom preview"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unzoom preview"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reducir previsualización"
+          }
+        },
+        "es-MX": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reducir vista previa"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pienennä esikatselu"
           }
         },
         "fr": {
@@ -37557,22 +38478,507 @@
             "state": "translated",
             "value": "Dézoomer l'aperçu"
           }
+        },
+        "fr-CA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dézoomer l'aperçu"
+          }
+        },
+        "gu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "પ્રીવ્યૂ અનઝૂમ કરો"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הקטן תצוגה מקדימה"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पूर्वावलोकन ज़ूम कम करें"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smanji pregled"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Előnézet kicsinyítése"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perkecil pratinjau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riduci anteprima"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを縮小"
+          }
+        },
+        "kn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ಪೂರ್ವವೀಕ್ಷಣೆಯನ್ನು ಅನ್‌ಜೂಮ್ ಮಾಡಿ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미리보기 축소"
+          }
+        },
+        "ml": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "പ്രിവ്യൂ ചെറുതാക്കുക"
+          }
+        },
+        "mr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पूर्वावलोकन झूम कमी करा"
+          }
+        },
+        "ms": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyahzum pratonton"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom forhåndsvisning ut"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voorvertoning verkleinen"
+          }
+        },
+        "or": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ପ୍ରିଭ୍ୟୁ ଅନଜୁମ୍ କରନ୍ତୁ"
+          }
+        },
+        "pa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ਪ੍ਰੀਵਿਊ ਅਨਜ਼ੂਮ ਕਰੋ"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomniejsz podgląd"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduzir pré-visualização"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Micșorează previzualizarea"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уменьшить предпросмотр"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oddialiť náhľad"
+          }
+        },
+        "sl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomanjšaj predogled"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zooma ut förhandsvisning"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "முன்னோட்டத்தை சிறிதாக்கு"
+          }
+        },
+        "te": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ప్రివ్యూను తగ్గించండి"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลดซูมตัวอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önizlemeyi uzaklaştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зменшити попередній перегляд"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "پیش نظارہ ان زوم کریں"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thu nhỏ bản xem trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缩小预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縮小預覽"
+          }
         }
       }
     },
     "Unzoom previews of these URLs": {
-      "extractionState": "stale",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصغير معاينات هذه الروابط"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "এই URL-গুলোর প্রিভিউ আনজুম করুন"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduir els avançaments d'aquests URLs"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oddálit náhledy těchto URL"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom forhåndsvisninger af disse URL'er ud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschauen dieser URLs verkleinern"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Σμίκρυνση προεπισκοπήσεων αυτών των URL"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Unzoom previews of these URLs"
           }
         },
+        "en-AU": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unzoom previews of these URLs"
+          }
+        },
+        "en-CA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unzoom previews of these URLs"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unzoom previews of these URLs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reducir previsualizaciones de estas URLs"
+          }
+        },
+        "es-MX": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reducir vistas previas de estas URLs"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pienennä näiden URL-osoitteiden esikatselut"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Dézoomer les aperçus de ces URLs"
+          }
+        },
+        "fr-CA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dézoomer les aperçus de ces URLs"
+          }
+        },
+        "gu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "આ URLsના પ્રીવ્યૂ અનઝૂમ કરો"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הקטן תצוגות מקדימות של URLs אלו"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इन URLs के पूर्वावलोकन ज़ूम कम करें"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smanji preglede ovih URL-ova"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ezen URL-ek előnézeteinek kicsinyítése"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perkecil pratinjau URL ini"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riduci anteprime di questi URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらの URL のプレビューを縮小"
+          }
+        },
+        "kn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ಈ URLs ನ ಪೂರ್ವವೀಕ್ಷಣೆಗಳನ್ನು ಅನ್‌ಜೂಮ್ ಮಾಡಿ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 URL의 미리보기 축소"
+          }
+        },
+        "ml": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ഈ URL-കളുടെ പ്രിവ്യൂ ചെറുതാക്കുക"
+          }
+        },
+        "mr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "या URLs चे पूर्वावलोकन झूम कमी करा"
+          }
+        },
+        "ms": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyahzum pratonton URL ini"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom forhåndsvisninger av disse URL-ene ut"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voorvertoningen van deze URL's verkleinen"
+          }
+        },
+        "or": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ଏହି URLs ର ପ୍ରିଭ୍ୟୁ ଅନଜୁମ୍ କରନ୍ତୁ"
+          }
+        },
+        "pa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ਇਹਨਾਂ URLs ਦੇ ਪ੍ਰੀਵਿਊ ਅਨਜ਼ੂਮ ਕਰੋ"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomniejsz podglądy tych adresów URL"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduzir pré-visualizações destes URLs"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Micșorează previzualizările acestor URL-uri"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уменьшить предпросмотры этих URL"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oddialiť náhľady týchto URL"
+          }
+        },
+        "sl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomanjšaj predoglede teh URL-jev"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zooma ut förhandsvisningar av dessa URL:er"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "இந்த URLs இன் முன்னோட்டங்களை சிறிதாக்கு"
+          }
+        },
+        "te": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ఈ URLsల ప్రివ్యూలను తగ్గించండి"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลดซูมตัวอย่างของ URL เหล่านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu URL'lerin önizlemelerini uzaklaştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зменшити попередні перегляди цих URL"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ان URLs کے پیش نظارے ان زوم کریں"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thu nhỏ bản xem trước của các URL này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缩小这些 URL 的预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縮小這些 URL 的預覽"
           }
         }
       }
@@ -40250,12 +41656,89 @@
       }
     },
     "Zoom preview": {
-      "extractionState": "stale",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكبير المعاينة"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "প্রিভিউ জুম করুন"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar l'avançament"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Přiblížit náhled"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom forhåndsvisning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau vergrößern"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Μεγέθυνση προεπισκόπησης"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Zoom preview"
+          }
+        },
+        "en-AU": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom preview"
+          }
+        },
+        "en-CA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom preview"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom preview"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar previsualización"
+          }
+        },
+        "es-MX": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar vista previa"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suurenna esikatselu"
           }
         },
         "fr": {
@@ -40263,22 +41746,507 @@
             "state": "translated",
             "value": "Zoomer l'aperçu"
           }
+        },
+        "fr-CA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoomer l'aperçu"
+          }
+        },
+        "gu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "પ્રીવ્યૂ ઝૂમ કરો"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הגדל תצוגה מקדימה"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पूर्वावलोकन ज़ूम करें"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povećaj pregled"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Előnézet nagyítása"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perbesar pratinjau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingrandisci anteprima"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを拡大"
+          }
+        },
+        "kn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ಪೂರ್ವವೀಕ್ಷಣೆಯನ್ನು ಜೂಮ್ ಮಾಡಿ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미리보기 확대"
+          }
+        },
+        "ml": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "പ്രിവ്യൂ വലുതാക്കുക"
+          }
+        },
+        "mr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पूर्वावलोकन झूम करा"
+          }
+        },
+        "ms": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum pratonton"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom forhåndsvisning"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voorvertoning vergroten"
+          }
+        },
+        "or": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ପ୍ରିଭ୍ୟୁ ଜୁମ୍ କରନ୍ତୁ"
+          }
+        },
+        "pa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ਪ੍ਰੀਵਿਊ ਜ਼ੂਮ ਕਰੋ"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiększ podgląd"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar pré-visualização"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mărește previzualizarea"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увеличить предпросмотр"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priblížiť náhľad"
+          }
+        },
+        "sl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povečaj predogled"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zooma in förhandsvisning"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "முன்னோட்டத்தை பெரிதாக்கு"
+          }
+        },
+        "te": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ప్రివ్యూను జూమ్ చేయండి"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซูมตัวอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önizlemeyi yakınlaştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збільшити попередній перегляд"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "پیش نظارہ زوم کریں"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phóng to bản xem trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放大预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放大預覽"
+          }
         }
       }
     },
     "Zoom previews of these URLs": {
-      "extractionState": "stale",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكبير معاينات هذه الروابط"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "এই URL-গুলোর প্রিভিউ জুম করুন"
+          }
+        },
+        "ca": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar els avançaments d'aquests URLs"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Přiblížit náhledy těchto URL"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom forhåndsvisninger af disse URL'er"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschauen dieser URLs vergrößern"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Μεγέθυνση προεπισκοπήσεων αυτών των URL"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Zoom previews of these URLs"
           }
         },
+        "en-AU": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom previews of these URLs"
+          }
+        },
+        "en-CA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom previews of these URLs"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom previews of these URLs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar previsualizaciones de estas URLs"
+          }
+        },
+        "es-MX": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar vistas previas de estas URLs"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suurenna näiden URL-osoitteiden esikatselut"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Zoomer les aperçus de ces URLs"
+          }
+        },
+        "fr-CA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoomer les aperçus de ces URLs"
+          }
+        },
+        "gu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "આ URLsના પ્રીવ્યૂ ઝૂમ કરો"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "הגדל תצוגות מקדימות של URLs אלו"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इन URLs के पूर्वावलोकन ज़ूम करें"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povećaj preglede ovih URL-ova"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ezen URL-ek előnézeteinek nagyítása"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perbesar pratinjau URL ini"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingrandisci anteprime di questi URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらの URL のプレビューを拡大"
+          }
+        },
+        "kn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ಈ URLs ನ ಪೂರ್ವವೀಕ್ಷಣೆಗಳನ್ನು ಜೂಮ್ ಮಾಡಿ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 URL의 미리보기 확대"
+          }
+        },
+        "ml": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ഈ URL-കളുടെ പ്രിവ്യൂ വലുതാക്കുക"
+          }
+        },
+        "mr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "या URLs चे पूर्वावलोकन झूम करा"
+          }
+        },
+        "ms": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum pratonton URL ini"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom forhåndsvisninger av disse URL-ene"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voorvertoningen van deze URL's vergroten"
+          }
+        },
+        "or": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ଏହି URLs ର ପ୍ରିଭ୍ୟୁ ଜୁମ୍ କରନ୍ତୁ"
+          }
+        },
+        "pa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ਇਹਨਾਂ URLs ਦੇ ਪ੍ਰੀਵਿਊ ਜ਼ੂਮ ਕਰੋ"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiększ podglądy tych adresów URL"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar pré-visualizações destes URLs"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mărește previzualizările acestor URL-uri"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увеличить предпросмотры этих URL"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priblížiť náhľady týchto URL"
+          }
+        },
+        "sl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povečaj predoglede teh URL-jev"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zooma in förhandsvisningar av dessa URL:er"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "இந்த URLs இன் முன்னோட்டங்களை பெரிதாக்கு"
+          }
+        },
+        "te": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ఈ URLsల ప్రివ్యూలను జూమ్ చేయండి"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซูมตัวอย่างของ URL เหล่านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu URL'lerin önizlemelerini yakınlaştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збільшити попередні перегляди цих URL"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ان URLs کے پیش نظارے زوم کریں"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phóng to bản xem trước của các URL này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放大这些 URL 的预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放大這些 URL 的預覽"
           }
         }
       }
