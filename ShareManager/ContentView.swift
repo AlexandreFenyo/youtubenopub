@@ -342,6 +342,10 @@ struct ContentView: View {
     @State private var themeAnnouncement: (old: Int, new: Int)? = nil
     /// Annonce overlay pull-to-refresh (mêmes style/durée que themeOverlay).
     @State private var refreshAnnouncement: Bool = false
+    /// Sous-titre affiché sous « Refreshing » dans l'overlay. Permet de
+    /// distinguer un pull-to-refresh de la liste des items (texte par
+    /// défaut) d'un pull-to-refresh de la sidebar (texte iCloud resync).
+    @State private var refreshAnnouncementSubtitle: LocalizedStringKey = "Updating missing previews and URL dates"
     /// Horodatages des appels IA (OpenAI/Anthropic uniquement, jamais
     /// Apple Intelligence). Volontairement non persisté — repart de zéro
     /// au lancement de l'app.
@@ -428,19 +432,6 @@ struct ContentView: View {
     /// `.environment(\.editMode, $editMode)`, ce qui fait que l'EditButton
     /// et le `List(selection:)` du detail view utilisent bien notre état.
     @State private var editMode: EditMode = .inactive
-    /// Indique si le presse-papiers contient quelque chose qu'on peut
-    /// proposer de coller comme nouvel item. Mis à jour à l'arrivée en
-    /// foreground et sur `UIPasteboard.changedNotification`. On ne lit
-    /// que les flags `hasURLs` / `hasStrings`, qui ne déclenchent PAS la
-    /// bannière système "ShareManager pasted from …" — celle-ci
-    /// n'apparaîtra que lorsque l'utilisateur choisira d'effectuer le
-    /// collage.
-    @State private var hasPasteableContent: Bool = false
-    /// Dernière valeur observée de `UIPasteboard.general.changeCount`.
-    /// On lit le contenu du presse-papiers (qui déclenche la bannière
-    /// « pasted from… ») au plus UNE fois par changement, pas à chaque
-    /// tick du timer 100 ms.
-    @State private var lastPasteboardChangeCount: Int = -1
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.verticalSizeClass) private var vSizeClass
     @State private var editingNoteItem: SharedItem? = nil
@@ -685,7 +676,6 @@ struct ContentView: View {
             // les items du cloud), mais en cas de bug le cleanup
             // évite des items « invisibles » bloqués dans une vue.
             cleanupOrphanItems()
-            refreshPasteableState()
             // Plus de refresh automatique au démarrage : l'utilisateur
             // doit explicitement tirer la liste vers le bas, ou choisir
             // « Refresh previews and URL dates » dans le menu …, ou
@@ -701,16 +691,11 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             loadItems()
-            refreshPasteableState()
             Task { await CloudSync.shared.pullChanges() }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             loadItems()
-            refreshPasteableState()
             Task { await CloudSync.shared.pullChanges() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
-            refreshPasteableState()
         }
         // Poll iCloud toutes les 10 s tant que l'app est au premier
         // plan. Sans ce poll, les modifs faites sur un autre appareil
@@ -740,14 +725,6 @@ struct ContentView: View {
             if debugLogsEnabled { loadDebugLogs() }
             checkAIEnabledTransition()
             checkShareCountForReview()
-            // Le check pasteboard est piggy-back sur ce timer parce que
-            // `UIPasteboard.changedNotification` n'est PAS posté quand
-            // le contenu change dans une autre app (limitation iOS),
-            // et sur iPadOS multi-fenêtres `didBecomeActive` peut ne
-            // pas se déclencher non plus selon le mode de bascule.
-            // `hasURLs` / `hasStrings` sont des checks gratuits (pas de
-            // bannière système), donc OK de les appeler à 10 Hz.
-            refreshPasteableState()
         }
         // Recalcul de la taille du container App Group : SEULEMENT toutes
         // les 2 s. Avant on était à 100 ms, ce qui sur un container
@@ -1060,6 +1037,9 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.5), value: smartFoldersExpanded)
+        .refreshable {
+            await pullToRefreshICloud()
+        }
     }
 
     // MARK: - Stats panel (sidebar bottom)
@@ -1471,14 +1451,12 @@ struct ContentView: View {
 
     private var settingsMenu: some View {
         Menu {
-            if hasPasteableContent {
-                Button {
-                    pasteAsItem()
-                } label: {
-                    Label("Paste URL from clipboard", systemImage: "doc.on.clipboard")
-                }
-                Divider()
+            Button {
+                pasteAsItem()
+            } label: {
+                Label("Paste URL from clipboard", systemImage: "doc.on.clipboard")
             }
+            Divider()
             if isIPhonePortrait {
                 Button {
                     showPreviewsSheet = true
@@ -2080,8 +2058,13 @@ struct ContentView: View {
     // MARK: - Pull-to-refresh announcement overlay
 
     /// Déclenche l'overlay « Refreshing » avec auto-disparition (mêmes
-    /// timings que themeOverlay → 1,6 s avant fade out).
-    private func showRefreshAnnouncement() {
+    /// timings que themeOverlay → 1,6 s avant fade out). Le paramètre
+    /// `subtitleKey` permet de différencier le pull-to-refresh items
+    /// (texte par défaut) du pull-to-refresh sidebar (texte iCloud).
+    private func showRefreshAnnouncement(
+        subtitleKey: LocalizedStringKey = "Updating missing previews and URL dates"
+    ) {
+        refreshAnnouncementSubtitle = subtitleKey
         withAnimation(.spring(duration: 0.25)) {
             refreshAnnouncement = true
         }
@@ -2101,7 +2084,7 @@ struct ContentView: View {
                     Text("Refreshing")
                         .fontWeight(.semibold)
                 }
-                Text("Updating missing previews and URL dates")
+                Text(refreshAnnouncementSubtitle)
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -3028,36 +3011,6 @@ struct ContentView: View {
         saveItems()
     }
 
-    /// Met à jour `hasPasteableContent` : vrai uniquement si le presse-
-    /// papiers contient une URL — soit URL typée (`pb.hasURLs`), soit
-    /// chaîne de caractères dont le scheme est `http`/`https`. La
-    /// validation du second cas nécessite de lire `pb.string`, ce qui
-    /// déclenche la bannière système « ShareManager pasted from… ».
-    /// Pour limiter cette bannière à UN affichage par changement de
-    /// presse-papiers, on gate sur `pb.changeCount` : la lecture
-    /// n'a lieu qu'une fois par copy event, même si on est appelé à
-    /// 10 Hz par le timer.
-    /// `detectPatterns(for: [.probableWebURL])` aurait permis le même
-    /// résultat sans bannière, mais l'API s'est révélée non fiable
-    /// dans ce contexte (observé : aucun retour).
-    private func refreshPasteableState() {
-        let pb = UIPasteboard.general
-        let cc = pb.changeCount
-        if cc == lastPasteboardChangeCount { return }
-        lastPasteboardChangeCount = cc
-
-        var isURL = pb.hasURLs
-        if !isURL, pb.hasStrings, let s = pb.string {
-            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let u = URL(string: trimmed),
-               let scheme = u.scheme?.lowercased(),
-               scheme == "http" || scheme == "https" {
-                isURL = true
-            }
-        }
-        if isURL != hasPasteableContent { hasPasteableContent = isURL }
-    }
-
     /// Action déclenchée par l'entrée « Paste URL from clipboard » du
     /// menu …. Lit l'URL depuis le presse-papiers et l'insère comme un
     /// nouvel item, comme s'il avait été partagé depuis une autre app.
@@ -3076,10 +3029,7 @@ struct ContentView: View {
                 urlString = trimmed
             }
         }
-        guard let urlString else {
-            refreshPasteableState()
-            return
-        }
+        guard let urlString else { return }
 
         let targetFolder: String
         if smartFolder == nil,
@@ -3118,8 +3068,6 @@ struct ContentView: View {
         if let d = defaults {
             d.set(d.integer(forKey: "totalShareCount") + 1, forKey: "totalShareCount")
         }
-
-        refreshPasteableState()
     }
 
     /// Déplace en bloc les items dont l'id est dans `ids` vers `folder`.
@@ -4538,6 +4486,21 @@ struct ContentView: View {
     }
 
     // MARK: - Batch refresh
+
+    /// Handler pour le pull-to-refresh de la sidebar. Équivalent au
+    /// bouton « Resync iCloud » du menu : lance `resyncReconcile` côté
+    /// CloudSync. Le spinner reste affiché jusqu'à la fin de
+    /// l'opération. Affiche l'overlay « Refreshing » avec un sous-titre
+    /// dédié à l'iCloud resync.
+    @MainActor
+    private func pullToRefreshICloud() async {
+        showRefreshAnnouncement(subtitleKey: "Resynchronizing with iCloud")
+        guard !isResyncing else { return }
+        isResyncing = true
+        await CloudSync.shared.resyncReconcile()
+        reloadFoldersAndItemsFromAppGroup()
+        isResyncing = false
+    }
 
     /// Handler pour le pull-to-refresh de la liste. Se comporte comme le
     /// bouton « Refresh dates » du menu : lance un batch refresh si aucun
