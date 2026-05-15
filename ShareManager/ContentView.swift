@@ -332,6 +332,11 @@ struct ContentView: View {
     /// déclencher `CloudSync.resyncReconcile()`, qui peut écrire et
     /// supprimer dans iCloud.
     @State private var showResyncConfirm = false
+    /// URLs détectées dans le presse-papiers en attente de confirmation
+    /// utilisateur. Non vide ⇔ le dialog `showPasteMultipleConfirm` est
+    /// affiché (cas où le presse-papiers contient ≥ 2 URLs).
+    @State private var pendingPasteURLs: [String] = []
+    @State private var showPasteMultipleConfirm = false
     @State private var isResyncing = false
     /// Confirmation pour « Delete local data » : action destructive
     /// qui efface le contenu des folders non synchronisés + le
@@ -839,6 +844,22 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Delete local data — body")
+        }
+        .confirmationDialog(
+            "Paste multiple URLs — confirm",
+            isPresented: $showPasteMultipleConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Paste all") {
+                let urls = pendingPasteURLs
+                pendingPasteURLs = []
+                insertPastedURLs(urls)
+            }
+            Button("Cancel", role: .cancel) {
+                pendingPasteURLs = []
+            }
+        } message: {
+            Text("\(pendingPasteURLs.count) URLs were found in the clipboard.")
         }
     }
 
@@ -3012,25 +3033,77 @@ struct ContentView: View {
     }
 
     /// Action déclenchée par l'entrée « Paste URL from clipboard » du
-    /// menu …. Lit l'URL depuis le presse-papiers et l'insère comme un
-    /// nouvel item, comme s'il avait été partagé depuis une autre app.
-    /// Folder cible : le dossier sélectionné si on est sur un vrai
-    /// dossier ; sinon (smart view, ou rien) le dossier par défaut.
+    /// menu …. Détecte TOUTES les URLs http/https présentes dans le
+    /// presse-papiers (URL typée, chaîne unique, ou texte multi-URL).
+    /// Cas 0 URL : no-op silencieux. Cas 1 URL : insertion immédiate.
+    /// Cas ≥ 2 URLs : popup de confirmation indiquant le nombre.
     private func pasteAsItem() {
+        let urls = extractURLsFromClipboard()
+        guard !urls.isEmpty else { return }
+        if urls.count == 1 {
+            insertPastedURLs(urls)
+        } else {
+            pendingPasteURLs = urls
+            showPasteMultipleConfirm = true
+        }
+    }
+
+    /// Extrait toutes les URLs http/https du presse-papiers, dans l'ordre,
+    /// dédupliquées. Trois sources sondées :
+    ///   1. `pb.urls` (URLs typées) — priorité 1 ; certaines apps
+    ///      écrivent plusieurs URLs typées dans le pasteboard.
+    ///   2. Découpage de `pb.string` sur les retours ligne — utile pour
+    ///      coller une liste d'URLs séparées par des sauts de ligne.
+    ///   3. `NSDataDetector` (.link) sur `pb.string` — capture les URLs
+    ///      noyées dans un texte arbitraire.
+    /// La lecture de `pb.string` peut déclencher la bannière système
+    /// « Captured pasted from… » — c'est l'utilisateur qui a choisi
+    /// d'effectuer le collage, donc acceptable.
+    private func extractURLsFromClipboard() -> [String] {
         let pb = UIPasteboard.general
-        var urlString: String? = nil
-        if pb.hasURLs, let u = pb.url {
-            urlString = u.absoluteString
-        } else if pb.hasStrings, let s = pb.string {
-            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let u = URL(string: trimmed),
-               let scheme = u.scheme?.lowercased(),
-               scheme == "http" || scheme == "https" {
-                urlString = trimmed
+        var collected: [String] = []
+        let isHTTP: (URL) -> Bool = {
+            let s = $0.scheme?.lowercased()
+            return s == "http" || s == "https"
+        }
+        if let typed = pb.urls {
+            for u in typed where isHTTP(u) {
+                collected.append(u.absoluteString)
             }
         }
-        guard let urlString else { return }
+        if collected.isEmpty, pb.hasStrings, let raw = pb.string {
+            // Tentative 1 : si chaque ligne non vide est une URL http/https,
+            // on les prend toutes.
+            let lines = raw.split(whereSeparator: { $0.isNewline })
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            let perLine = lines.compactMap { line -> String? in
+                guard let u = URL(string: line), isHTTP(u) else { return nil }
+                return line
+            }
+            if perLine.count == lines.count, !perLine.isEmpty {
+                collected.append(contentsOf: perLine)
+            } else if let detector = try? NSDataDetector(
+                types: NSTextCheckingResult.CheckingType.link.rawValue
+            ) {
+                // Tentative 2 : extraction des URLs noyées dans du texte.
+                let range = NSRange(raw.startIndex..., in: raw)
+                detector.enumerateMatches(in: raw, options: [], range: range) { match, _, _ in
+                    if let u = match?.url, isHTTP(u) {
+                        collected.append(u.absoluteString)
+                    }
+                }
+            }
+        }
+        var seen: Set<String> = []
+        return collected.filter { seen.insert($0).inserted }
+    }
 
+    /// Insère un lot d'URLs comme items dans le folder courant (ou
+    /// Default si on est sur une smart view). Réutilisée par le chemin
+    /// « insertion directe » (1 URL) et le chemin « confirmation » (≥ 2).
+    private func insertPastedURLs(_ urls: [String]) {
+        guard !urls.isEmpty else { return }
         let targetFolder: String
         if smartFolder == nil,
            let sel = selectedFolder,
@@ -3041,32 +3114,32 @@ struct ContentView: View {
         }
 
         let now = Date().timeIntervalSince1970
-        let newItem = SharedItem(
-            id: UUID().uuidString,
-            url: urlString,
-            title: nil,
-            sourceApp: "Pasteboard",
-            folder: targetFolder,
-            timestamp: now,
-            kind: "url"
-        )
-        items.insert(newItem, at: 0)
+        // Décalage de 1 ms par item pour préserver l'ordre de la liste
+        // (la première URL du presse-papiers se retrouve tout en haut).
+        var newItems: [SharedItem] = []
+        for (i, urlString) in urls.enumerated() {
+            let it = SharedItem(
+                id: UUID().uuidString,
+                url: urlString,
+                title: nil,
+                sourceApp: "Pasteboard",
+                folder: targetFolder,
+                timestamp: now + Double(urls.count - 1 - i) * 0.001,
+                kind: "url"
+            )
+            newItems.append(it)
+        }
+        items.insert(contentsOf: newItems, at: 0)
         saveItems()
-
-        // Lance immédiatement le fetch de la date Last-Modified. On ne
-        // peut pas se reposer sur l'auto-fetch fait par `loadItems()`
-        // parce que celui-ci ne déclenche le fetch que pour les items
-        // dont l'id n'était pas dans `previousIDs` ; or on vient
-        // d'insérer manuellement le nouvel item dans `items`, donc il
-        // sera déjà connu au prochain tick et l'auto-fetch sera sauté.
-        // Sans cet appel, la ligne resterait bloquée sur « Fetching
-        // date… » clignotant jusqu'à un refresh manuel.
-        startFetchLastModified(for: newItem)
-
-        // Aligné sur le comportement de la Share Extension : incrémente
-        // le compteur global utilisé pour le rappel d'avis App Store.
+        // Fetch immédiat de la date Last-Modified pour chaque item.
+        // Cf. commentaire détaillé dans l'ancienne version mono-URL :
+        // l'auto-fetch de `loadItems()` ne se déclenche pas pour les
+        // items déjà connus au tick suivant.
+        for it in newItems {
+            startFetchLastModified(for: it)
+        }
         if let d = defaults {
-            d.set(d.integer(forKey: "totalShareCount") + 1, forKey: "totalShareCount")
+            d.set(d.integer(forKey: "totalShareCount") + urls.count, forKey: "totalShareCount")
         }
     }
 
