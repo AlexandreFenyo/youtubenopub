@@ -67,7 +67,15 @@
       "Bash(grep -nC 1 -i \"vignette\" /Volumes/external-mac/fenyo/git3/youtubenopub/ShareManager/CloudSync.swift)",
       "Bash(grep -nC 0 -i \"vignette\" /Volumes/external-mac/fenyo/git3/youtubenopub/ShareManager/ContentView.swift)",
       "Bash(git checkout *)",
-      "Bash(git merge *)"
+      "Bash(git merge *)",
+      "Bash(ls -la /private/var/folders/p8/l8q2jm_d3vzfz915010jdrjh0000gn/T/ShareManager_2026-05-14_17-00-55.126.xcdistributionlogs/)",
+      "Bash(grep -viE \"no error|0 error|errorRetry|RetryError|errorDomain.{0,30}NSURL|HTTP_HEADER_FIELD|errorCode = 0|severity\\\\\\(warning\\\\\\), error\\\\\\(nil\\\\\\)\")",
+      "Bash(ls -la /Volumes/external-mac/fenyo/tmp/exported-2.0.1/)",
+      "Bash(plutil -p -)",
+      "Bash(codesign -d --entitlements :- Payload/*.app)",
+      "Bash(codesign -dv Payload/*.app)",
+      "Bash(git tag *)",
+      "Bash(python3 /tmp/add_resync_subtitle.py)"
     ]
   }
 }
