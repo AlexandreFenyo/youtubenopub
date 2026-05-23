@@ -50,8 +50,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // CloudSync vérifie qu'il y a effectivement un changement
         // via le `serverChangeToken` ; aucun trafic inutile en cas
         // de payload non pertinent.
-        let ts = ISO8601DateFormatter().string(from: Date())
-        print("[CloudSync][\(ts)][\(UIDevice.current.name)] AppDelegate: didReceiveRemoteNotification → triggering pull")
+        CloudSync.externalLog("AppDelegate: didReceiveRemoteNotification → triggering pull")
         Task {
             await CloudSync.shared.pullChanges()
             completionHandler(.newData)
@@ -59,9 +58,24 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     func application(_ application: UIApplication,
+                     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        // Confirme que iOS a accepté l'enregistrement APNs sur cet
+        // appareil. Sans cet enregistrement réussi, aucune push
+        // silencieuse de la CKDatabaseSubscription ne sera livrée —
+        // la sync ne dépendrait alors que du poll 10 s en foreground
+        // et du didBecomeActive. Trace utile quand un appareil reçoit
+        // ses subscriptions tardivement (>30 min).
+        let tokenHex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        let preview = String(tokenHex.prefix(16))
+        CloudSync.externalLog("AppDelegate: ✅ APNs registered, deviceToken=\(preview)… (\(deviceToken.count) bytes)")
+    }
+
+    func application(_ application: UIApplication,
                      didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        // Silencieux : en simulateur ou sans capacity APS provisionnée,
+        // En simulateur ou sans capacity APS provisionnée,
         // l'enregistrement peut échouer ; on ne casse rien — l'app
-        // continue à pull sur didBecomeActive.
+        // continue à pull sur didBecomeActive. Trace l'erreur pour
+        // que le diagnostic n'ait pas à deviner si APNs est OK.
+        CloudSync.externalLog("AppDelegate: ❌ APNs registration failed: \(error.localizedDescription)")
     }
 }

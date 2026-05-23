@@ -75,7 +75,8 @@
       "Bash(codesign -d --entitlements :- Payload/*.app)",
       "Bash(codesign -dv Payload/*.app)",
       "Bash(git tag *)",
-      "Bash(python3 /tmp/add_resync_subtitle.py)"
+      "Bash(python3 /tmp/add_resync_subtitle.py)",
+      "Bash(xcodebuild -project ShareManager.xcodeproj -scheme ShareManager -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO)"
     ]
   }
 }

@@ -332,6 +332,14 @@ struct ContentView: View {
     /// déclencher `CloudSync.resyncReconcile()`, qui peut écrire et
     /// supprimer dans iCloud.
     @State private var showResyncConfirm = false
+    /// État du bouton diagnostic « Inventory iCloud » : grisé pendant
+    /// l'exécution (full-fetch zone, peut prendre quelques secondes).
+    @State private var isInventoryingCloud = false
+    /// Popup de résultat de « Purge unused local files » (debug) :
+    /// indique combien de fichiers ont été supprimés, ou que rien ne
+    /// l'a été.
+    @State private var showPurgeResult = false
+    @State private var purgeResultMessage = ""
     /// URLs détectées dans le presse-papiers en attente de confirmation
     /// utilisateur. Non vide ⇔ le dialog `showPasteMultipleConfirm` est
     /// affiché (cas où le presse-papiers contient ≥ 2 URLs).
@@ -495,6 +503,11 @@ struct ContentView: View {
     /// timer 100 ms quand rien n'a changé. Cause majeure de CPU élevé
     /// après les opérations massives (clear AI generated text, etc.).
     @State private var lastLoadedItemsData: Data? = nil
+    /// Base de réconciliation pour la fusion à 3 voies des dossiers :
+    /// bytes des `folders` tels que chargés en dernier dans `@State`.
+    /// Permet à `saveFolders` de distinguer les changements utilisateur
+    /// des écritures concurrentes de CloudSync (cf. `lastLoadedItemsData`).
+    @State private var lastLoadedFoldersData: Data? = nil
     /// Dernier total de partages observé : sert à détecter les
     /// nouveaux partages (depuis le Share Extension) pendant que l'app
     /// est lancée pour proposer la fenêtre « Noter cette app » à chaque
@@ -692,11 +705,19 @@ struct ContentView: View {
             Task {
                 await CloudSync.shared.refreshAccountStatus()
                 await CloudSync.shared.pullChanges()
+                // Reprend un envoi interrompu par un kill de l'app : rien
+                // d'autre ne relance un push au lancement, et le snapshot
+                // de diff push est en mémoire (perdu au redémarrage).
+                // Pousse uniquement le diff manquant/modifié côté serveur.
+                await CloudSync.shared.resumePendingUploads()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             loadItems()
-            Task { await CloudSync.shared.pullChanges() }
+            Task {
+                await CloudSync.shared.pullChanges()
+                await CloudSync.shared.resumePendingUploads()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             loadItems()
@@ -715,6 +736,14 @@ struct ContentView: View {
         // pour ne rien faire si iCloud n'est pas configuré.
         .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
             Task { await CloudSync.shared.pullChanges() }
+        }
+        // Sonde réseau du compteur « à récupérer » (↓) toutes les 4 s.
+        // Pilotée depuis la racine (toujours montée) plutôt que depuis
+        // StatsPanelView (dans la sidebar, démontée sur iPhone compact),
+        // pour que le compteur reste à jour quel que soit l'écran
+        // affiché. Métadonnées seulement (aucun binaire) → peu coûteux.
+        .onReceive(Timer.publish(every: 4, on: .main, in: .common).autoconnect()) { _ in
+            Task { await CloudSync.shared.refreshTransferCounts() }
         }
         .onReceive(Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()) { _ in
             loadItems()
@@ -835,6 +864,7 @@ struct ContentView: View {
         } message: {
             Text("Resync iCloud — body")
         }
+        .modifier(PurgeResultAlert(isPresented: $showPurgeResult, message: purgeResultMessage))
         .confirmationDialog(
             "Delete local data — confirm",
             isPresented: $showDeleteLocalConfirm,
@@ -1591,10 +1621,25 @@ struct ContentView: View {
                 } label: {
                     Label("View Logs", systemImage: "doc.text.magnifyingglass")
                 }
-                Button(role: .destructive) {
-                    clearDebugLogs()
+                // Diagnostic : énumère tout ce qui est présent côté
+                // serveur iCloud, en bypassant le serverChangeToken.
+                // Écrit le récapitulatif dans le fichier de logs.
+                // Utile pour répondre rapidement à « est-ce que ce
+                // folder/cet item est arrivé sur le serveur depuis
+                // l'autre appareil ? ».
+                Button {
+                    runInventoryCloud()
                 } label: {
-                    Label("Clear Logs", systemImage: "trash")
+                    Label("Inventory iCloud (debug)", systemImage: "list.bullet.indent")
+                }
+                .disabled(isInventoryingCloud)
+                // Nettoyage des fichiers locaux (binaires + previews) qui
+                // ne sont plus référencés par aucun item des métadonnées
+                // locales. Affiche un popup avec le résultat.
+                Button {
+                    purgeUnusedLocalFiles()
+                } label: {
+                    Label("Purge unused local files", systemImage: "trash.slash")
                 }
                 // Reset complet de l'état CloudKit pour repartir
                 // from-scratch en debug : supprime la zone côté serveur
@@ -1984,6 +2029,15 @@ struct ContentView: View {
                     Label("Regenerate AI text", systemImage: "text.badge.xmark")
                 }
             }
+            // Suppression : déjà possible via swipe-gauche ou le mode
+            // Edit, exposée ici aussi pour cohérence. Immédiate (comme
+            // le swipe), sans confirmation.
+            Divider()
+            Button(role: .destructive) {
+                deleteItem(item)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
         }
         .onAppear {
             if kind == "url" {
@@ -2339,29 +2393,104 @@ struct ContentView: View {
         // Apple Intelligence (on-device Vision) n'a pas besoin de clé.
         if provider != "apple" && apiKey.isEmpty { return }
 
+        // Items reçus d'iCloud sans traitement IA : on NE lance PAS l'IA
+        // automatiquement. Décrire/OCR/transcrire un objet est la
+        // responsabilité de l'appareil d'origine ; le résultat nous
+        // parviendra par sync. (Les actions manuelles — Regenerate /
+        // Refresh AI text — appellent `startAIDescribe` directement et
+        // ne sont donc pas bridées par cet ensemble.)
+        let noAutoProcess = noAutoProcessIDs
+
         for item in items where (item.effectiveKind == "photo" || item.effectiveKind == "video")
                                 && item.aiDescribed != true
+                                && !noAutoProcess.contains(item.id)
                                 && !describingIDs.contains(item.id)
                                 && !aiCallsCapped(item, provider: provider) {
             startAIDescribe(item: item, provider: provider, apiKey: apiKey, customModel: customModel)
         }
     }
 
+    /// Ids des items reçus d'iCloud à NE PAS auto-traiter (description IA,
+    /// OCR, transcription audio) : c'est à l'appareil d'origine de les
+    /// traiter et de pousser le résultat. Alimenté par CloudSync à la
+    /// réception (clé App Group `cloudReceivedNoAutoDescribe`).
+    private var noAutoProcessIDs: Set<String> {
+        Set((defaults?.array(forKey: CloudSync.noAutoDescribeKey) as? [String]) ?? [])
+    }
+
     private func saveItems(_ newItems: [SharedItem]? = nil) {
         let toSave = newItems ?? items
-        guard let defaults, let data = try? JSONEncoder().encode(toSave) else { return }
+        guard let defaults else { return }
+        // Read-merge-write sous verrou partagé : on ne réécrit PAS
+        // aveuglément `@State` par-dessus le store (cela écrasait les
+        // items que CloudSync venait d'ajouter pendant un pull → items
+        // perdus + fichiers orphelins). On relit le store persistant et
+        // on applique uniquement la mutation utilisateur (diff vs la base
+        // chargée en dernier), par fusion à 3 voies par `id`.
+        CloudSync.storeLock.lock()
+        defer { CloudSync.storeLock.unlock() }
+
+        let base: [SharedItem] = {
+            guard let d = lastLoadedItemsData,
+                  let arr = try? JSONDecoder().decode([SharedItem].self, from: d) else { return [] }
+            return arr
+        }()
+        let persisted: [SharedItem] = {
+            guard let d = defaults.data(forKey: StoreKeys.items),
+                  let arr = try? JSONDecoder().decode([SharedItem].self, from: d) else { return [] }
+            return arr
+        }()
+        let merged = threeWayMergeItems(base: base, current: toSave, persisted: persisted)
+        guard let data = try? JSONEncoder().encode(merged) else { return }
         defaults.set(data, forKey: StoreKeys.items)
-        // Coalesce les reloads widget : pendant un re-traitement IA on
-        // pouvait appeler `reloadAllTimelines()` des dizaines de fois par
-        // seconde, ce qui sature WidgetKit côté système. On planifie au
-        // plus un reload toutes les 2 s.
+        // Aligne `@State` + base sur le résultat fusionné, pour que la
+        // prochaine sauvegarde diffe correctement et que l'UI reflète les
+        // items concurremment reçus sans attendre le tick 100 ms.
+        if items != merged { items = merged }
+        lastLoadedItemsData = data
+
+        // Coalesce les reloads widget (cf. note historique).
         scheduleWidgetReload()
-        // Notifie CloudSync : il calculera le diff vs son snapshot
-        // interne et pushera (1 s de debouncing) ; aucun trafic
-        // CloudKit tant qu'aucun folder n'est marqué synced.
         let foldersSnap = folders
-        let itemsSnap = toSave
+        let itemsSnap = merged
         Task { await CloudSync.shared.snapshotChanged(folders: foldersSnap, items: itemsSnap) }
+    }
+
+    /// Fusion à 3 voies des items (par `id`) : réconcilie les
+    /// changements utilisateur (UI) avec ceux écrits concurremment par
+    /// CloudSync, sans perte. `base` = état chargé en dernier dans
+    /// `@State` ; `current` = état utilisateur (base + mutations UI) ;
+    /// `persisted` = store actuel (base + écritures CloudSync).
+    private func threeWayMergeItems(base: [SharedItem],
+                                    current: [SharedItem],
+                                    persisted: [SharedItem]) -> [SharedItem] {
+        let baseByID = Dictionary(base.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let currentByID = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let persistedByID = Dictionary(persisted.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let userDeleted = Set(baseByID.keys).subtracting(currentByID.keys)
+
+        var result: [SharedItem] = []
+        // 1. Items présents côté persistant, absents du `current` et non
+        //    supprimés par l'utilisateur = ajoutés concurremment par
+        //    CloudSync → on les conserve, en tête (convention « nouveau
+        //    en premier »).
+        for it in persisted where currentByID[it.id] == nil && !userDeleted.contains(it.id) {
+            result.append(it)
+        }
+        // 2. Items du `current`, dans l'ordre utilisateur.
+        for it in current {
+            let baseItem = baseByID[it.id]
+            let userAdded = (baseItem == nil)
+            let userModified = (baseItem != nil && baseItem != it)
+            if userAdded || userModified {
+                result.append(it)            // version utilisateur (gagne sur edit/delete concurrent)
+            } else if let p = persistedByID[it.id] {
+                result.append(p)             // non touché → version persistée (CloudSync)
+            }
+            // sinon : non touché ET absent du persistant = supprimé par
+            // CloudSync (suppression distante) → on l'omet.
+        }
+        return result
     }
 
     private func scheduleWidgetReload() {
@@ -2394,18 +2523,65 @@ struct ContentView: View {
             loaded = [Folder.systemDefault()]
         }
         if loaded != folders { folders = loaded }
+        // Mémorise la base (folders chargés) pour la fusion à 3 voies de
+        // `saveFolders`. On encode `loaded` (et non la donnée brute) car
+        // `loaded` a pu être transformé (migration, insertion de Default).
+        lastLoadedFoldersData = try? JSONEncoder().encode(loaded)
     }
 
     private func saveFolders() {
         guard let defaults else { return }
-        if let data = try? JSONEncoder().encode(folders) {
-            defaults.set(data, forKey: StoreKeys.folders)
-        }
-        // CloudSync : snapshot pour détecter les folders à push/delete
-        // (icone synced/unsynced changée, ordre, etc.).
-        let foldersSnap = folders
+        // Read-merge-write sous verrou (même rationale que saveItems) :
+        // évite d'écraser un folder que CloudSync vient d'ajouter / de
+        // flipper en synced pendant un pull.
+        CloudSync.storeLock.lock()
+        defer { CloudSync.storeLock.unlock() }
+
+        let base: [Folder] = {
+            guard let d = lastLoadedFoldersData,
+                  let arr = try? JSONDecoder().decode([Folder].self, from: d) else { return [] }
+            return arr
+        }()
+        let persisted: [Folder] = {
+            guard let d = defaults.data(forKey: StoreKeys.folders),
+                  let arr = try? JSONDecoder().decode([Folder].self, from: d) else { return [] }
+            return arr
+        }()
+        let merged = threeWayMergeFolders(base: base, current: folders, persisted: persisted)
+        guard let data = try? JSONEncoder().encode(merged) else { return }
+        defaults.set(data, forKey: StoreKeys.folders)
+        if folders != merged { folders = merged }
+        lastLoadedFoldersData = data
+
+        let foldersSnap = merged
         let itemsSnap = items
         Task { await CloudSync.shared.snapshotChanged(folders: foldersSnap, items: itemsSnap) }
+    }
+
+    /// Fusion à 3 voies des dossiers (par `name`) — cf. `threeWayMergeItems`.
+    private func threeWayMergeFolders(base: [Folder],
+                                      current: [Folder],
+                                      persisted: [Folder]) -> [Folder] {
+        let baseByName = Dictionary(base.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        let currentByName = Dictionary(current.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        let persistedByName = Dictionary(persisted.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        let userDeleted = Set(baseByName.keys).subtracting(currentByName.keys)
+
+        var result: [Folder] = []
+        for f in persisted where currentByName[f.name] == nil && !userDeleted.contains(f.name) {
+            result.append(f)
+        }
+        for f in current {
+            let baseF = baseByName[f.name]
+            let userAdded = (baseF == nil)
+            let userModified = (baseF != nil && baseF != f)
+            if userAdded || userModified {
+                result.append(f)
+            } else if let p = persistedByName[f.name] {
+                result.append(p)
+            }
+        }
+        return result
     }
 
     private func loadSelectedFolder() {
@@ -2510,6 +2686,79 @@ struct ContentView: View {
                 isResyncing = false
             }
         }
+    }
+
+    /// Lance `CloudSync.inventoryCloud()` — diagnostic seul, n'altère
+    /// rien. Le résultat (liste des Folder + Item présents sur le
+    /// serveur) part dans le fichier de logs ; on recharge ensuite
+    /// la vue Logs si elle est ouverte, et on s'assure que les Debug
+    /// Logs sont activés (sans quoi le rapport n'aurait nulle part
+    /// où être écrit).
+    private func runInventoryCloud() {
+        guard !isInventoryingCloud else { return }
+        if !debugLogsEnabled { debugLogsEnabled = true }
+        isInventoryingCloud = true
+        Task {
+            await CloudSync.shared.inventoryCloud()
+            await MainActor.run {
+                loadDebugLogs()
+                isInventoryingCloud = false
+            }
+        }
+    }
+
+    /// Supprime les fichiers locaux (binaires dans `SharedFiles/` et
+    /// previews dans `previews/`) qui ne sont référencés par AUCUN item
+    /// des métadonnées locales. Récupère l'espace laissé par d'anciens
+    /// orphelins (ex. items supprimés à distance avant le correctif de
+    /// nettoyage automatique). Affiche un popup avec le bilan.
+    private func purgeUnusedLocalFiles() {
+        guard let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroup) else {
+            purgeResultMessage = "Unable to access the app container."
+            showPurgeResult = true
+            return
+        }
+        let fm = FileManager.default
+        // Fichiers référencés par les métadonnées locales (tous folders).
+        var usedBinaryPaths = Set<String>()
+        var usedPreviewNames = Set<String>()
+        for it in items {
+            if let u = URL(string: it.url), u.isFileURL {
+                usedBinaryPaths.insert(u.standardizedFileURL.path)
+            }
+            if let p = it.previewPath, !p.isEmpty { usedPreviewNames.insert(p) }
+        }
+
+        var deletedCount = 0
+        var freedBytes: Int64 = 0
+        func sweep(_ dir: URL, isReferenced: (URL) -> Bool) {
+            guard let files = try? fm.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: [.fileSizeKey]) else { return }
+            for f in files where !isReferenced(f) {
+                let size = (try? f.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                if (try? fm.removeItem(at: f)) != nil {
+                    deletedCount += 1
+                    freedBytes += Int64(size)
+                }
+            }
+        }
+        sweep(container.appendingPathComponent("SharedFiles", isDirectory: true)) { f in
+            usedBinaryPaths.contains(f.standardizedFileURL.path)
+        }
+        sweep(container.appendingPathComponent("previews", isDirectory: true)) { f in
+            usedPreviewNames.contains(f.lastPathComponent)
+        }
+
+        if deletedCount == 0 {
+            purgeResultMessage = "No unused files found. Nothing was deleted."
+        } else {
+            let bf = ByteCountFormatter()
+            bf.allowedUnits = [.useKB, .useMB, .useGB]
+            bf.countStyle = .file
+            purgeResultMessage = "Deleted \(deletedCount) unused file(s), freed \(bf.string(fromByteCount: freedBytes))."
+        }
+        showPurgeResult = true
     }
 
     /// Relit `folders` + `items` depuis l'App Group UserDefaults.
@@ -2696,6 +2945,19 @@ struct ContentView: View {
         let removedIDs = Set(removedItems.map(\.id))
         items.removeAll { removedIDs.contains($0.id) }
         Spotlight.deindex(Array(removedIDs))
+        saveItems()
+    }
+
+    /// Suppression d'un item unique (entrée « Delete » du menu
+    /// contextuel). Même effet que le swipe-gauche / Edit : nettoie le
+    /// binaire + la preview sur disque, retire des métadonnées, dé-index
+    /// Spotlight, puis sauvegarde (ce qui notifie CloudSync pour la
+    /// suppression côté iCloud si le folder est synced).
+    private func deleteItem(_ item: SharedItem) {
+        removeFileIfLocal(item.url)
+        removePreviewIfAny(item)
+        items.removeAll { $0.id == item.id }
+        Spotlight.deindex([item.id])
         saveItems()
     }
 
@@ -3258,8 +3520,12 @@ struct ContentView: View {
 
     private func triggerPendingOCR() {
         guard !autoTriggersPaused else { return }
+        // Items reçus d'iCloud non encore traités : pas d'OCR auto ici
+        // (l'appareil d'origine s'en charge et pousse le résultat).
+        let noAutoProcess = noAutoProcessIDs
         for item in items where (item.effectiveKind == "photo" || item.effectiveKind == "video")
                                 && item.ocrDone != true
+                                && !noAutoProcess.contains(item.id)
                                 // Bloque les retries auto en cas
                                 // d'échec : seuls 1A/1B (via
                                 // `retryFailedOCRsForCurrent`) ou les
@@ -3432,8 +3698,12 @@ struct ContentView: View {
     private func triggerPendingAudioTranscriptions() {
         guard !autoTriggersPaused else { return }
         guard UserDefaults.standard.bool(forKey: "describeImagesEnabled") else { return }
+        // Items reçus d'iCloud non encore traités : pas de transcription
+        // auto ici (l'appareil d'origine s'en charge et pousse le texte).
+        let noAutoProcess = noAutoProcessIDs
         for item in items where item.effectiveKind == "audio"
                                 && item.aiDescribed != true
+                                && !noAutoProcess.contains(item.id)
                                 && !describingIDs.contains(item.id) {
             startAudioTranscription(for: item)
         }
@@ -6552,6 +6822,22 @@ final class BackgroundTasksMonitor: ObservableObject {
     private init() {}
 }
 
+/// Alerte de résultat de « Purge unused local files », extraite en
+/// `ViewModifier` pour alléger le body de ContentView (sinon le
+/// type-checker SwiftUI dépasse le temps imparti sur la longue chaîne
+/// de modificateurs).
+private struct PurgeResultAlert: ViewModifier {
+    @Binding var isPresented: Bool
+    let message: String
+    func body(content: Content) -> some View {
+        content.alert("Purge unused local files", isPresented: $isPresented) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(message)
+        }
+    }
+}
+
 struct StatsPanelView: View {
     let appGroup: String
     /// Callbacks fournis par ContentView pour les menus contextuels
@@ -6575,6 +6861,12 @@ struct StatsPanelView: View {
     /// Conditionne l'affichage de la ligne iCloud.
     @State private var hasSyncedFolder: Bool = false
     @State private var iCloudComputing: Bool = false
+    /// Nombre d'objets restant à envoyer vers iCloud (↑) / à
+    /// récupérer depuis iCloud (↓). Alimentés par
+    /// `CloudSync.refreshTransferCounts()` via l'App Group. 0 = rien
+    /// en attente → la flèche correspondante n'est pas affichée.
+    @State private var pendingUpload: Int = 0
+    @State private var pendingDownload: Int = 0
     @ObservedObject private var tasks = BackgroundTasksMonitor.shared
 
     var body: some View {
@@ -6634,7 +6926,11 @@ struct StatsPanelView: View {
                     Label("Delete only local data", systemImage: "trash")
                 }
             }
-            if hasSyncedFolder {
+            // Affichée dès qu'il y a un folder synced localement OU
+            // qu'un transfert est en attente dans un sens ou l'autre :
+            // un receveur qui n'a pas encore le folder en local doit
+            // tout de même voir « ↓N » pendant que les objets arrivent.
+            if hasSyncedFolder || pendingUpload > 0 || pendingDownload > 0 {
                 HStack(spacing: 8) {
                     Image(systemName: "icloud.fill")
                         .foregroundColor(.blue)
@@ -6646,6 +6942,32 @@ struct StatsPanelView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .monospacedDigit()
+                    // ↑ objets encore à envoyer vers iCloud.
+                    if pendingUpload > 0 {
+                        HStack(spacing: 1) {
+                            Image(systemName: "arrow.up")
+                            Text("\(pendingUpload)")
+                                .monospacedDigit()
+                                .contentTransition(.numericText(value: Double(pendingUpload)))
+                        }
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.orange)
+                        .transition(.opacity)
+                    }
+                    // ↓ objets encore à récupérer depuis iCloud.
+                    if pendingDownload > 0 {
+                        HStack(spacing: 1) {
+                            Image(systemName: "arrow.down")
+                            Text("\(pendingDownload)")
+                                .monospacedDigit()
+                                .contentTransition(.numericText(value: Double(pendingDownload)))
+                        }
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.green)
+                        .transition(.opacity)
+                    }
                 }
                 .contentShape(Rectangle())
                 .contextMenu {
@@ -6739,15 +7061,43 @@ struct StatsPanelView: View {
         // conditionnelles (« Background tasks », « iCloud »).
         .animation(.easeInOut(duration: 0.5), value: tasks.activeCount > 0)
         .animation(.easeInOut(duration: 0.5), value: hasSyncedFolder)
+        // Apparition/disparition et roulement des badges ↑/↓.
+        .animation(.easeInOut(duration: 0.4), value: pendingUpload)
+        .animation(.easeInOut(duration: 0.4), value: pendingDownload)
         .onAppear {
             recomputeAppDataBytes()
             recomputeICloudBytes()
+            readTransferCounts()
+            // Première sonde immédiate pour ne pas attendre le timer.
+            Task { await CloudSync.shared.refreshTransferCounts() }
         }
         .onReceive(Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()) { _ in
             recomputeAppDataBytes()
             recomputeICloudBytes()
             statsTick &+= 1
         }
+        // Lecture rapide (0,5 s) des compteurs de transfert publiés par
+        // CloudSync dans l'App Group : le badge ↑ est écrit dès la
+        // mutation (instantané), il faut donc le relire vite pour le
+        // voir même sur une opération brève. `readTransferCounts` ne
+        // mute l'état (et ne re-render) que si la valeur a changé, donc
+        // ce timer est quasi gratuit au repos. La SONDE réseau (↓) est
+        // pilotée depuis la racine ContentView (toujours montée), pas
+        // ici, pour rester active même quand la sidebar est masquée.
+        .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
+            readTransferCounts()
+        }
+    }
+
+    /// Lit les compteurs de transfert publiés par CloudSync dans
+    /// l'App Group et met à jour l'état local (sans mutation inutile
+    /// pour limiter les re-renders).
+    private func readTransferCounts() {
+        guard let d = UserDefaults(suiteName: appGroup) else { return }
+        let up = d.integer(forKey: "cloudPendingUploadCount")
+        let down = d.integer(forKey: "cloudPendingDownloadCount")
+        if up != pendingUpload { pendingUpload = up }
+        if down != pendingDownload { pendingDownload = down }
     }
 
     private var providersSignature: String {
