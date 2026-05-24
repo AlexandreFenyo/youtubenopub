@@ -465,6 +465,76 @@ actor CloudSync {
         return (folders, items)
     }
 
+    // MARK: - Inbox drain (cross-process safe ingestion of new shares)
+
+    /// Intègre dans `"items"` les partages déposés par l'extension dans
+    /// `inbox/<id>.json`. L'extension ne modifie plus le tableau partagé
+    /// (cf. course read-modify-write cross-process) : elle écrit des
+    /// fichiers individuels atomiques, et l'app — SEUL écrivain de
+    /// `"items"` — les draine ici sous `storeLock`.
+    ///
+    /// Idempotent : dédup par `id` vs le store, écriture du store AVANT
+    /// suppression des fichiers. Un crash après l'écriture / avant la
+    /// suppression → au prochain drain l'id est déjà présent → le fichier
+    /// est traité comme doublon et supprimé, rien n'est ajouté. Un crash
+    /// avant l'écriture → les fichiers survivent et sont redrainés.
+    ///
+    /// Retourne le nombre d'items réellement ajoutés.
+    @discardableResult
+    func drainInbox() -> Int {
+        guard let container = containerURL,
+              let d = UserDefaults(suiteName: appGroup) else { return 0 }
+        let dir = container.appendingPathComponent("inbox", isDirectory: true)
+        let fm = FileManager.default
+        guard let urls = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        else { return 0 }
+        let jsonURLs = urls.filter { $0.pathExtension == "json" }
+        guard !jsonURLs.isEmpty else { return 0 }
+
+        // Décodage tolérant : un fichier illisible / partiel / disparu
+        // (course avec une suppression concurrente) est ignoré et sera
+        // retenté au prochain drain.
+        var incoming: [(url: URL, item: SharedItem)] = []
+        for u in jsonURLs {
+            guard let data = try? Data(contentsOf: u),
+                  let item = try? JSONDecoder().decode(SharedItem.self, from: data) else { continue }
+            incoming.append((u, item))
+        }
+        guard !incoming.isEmpty else { return 0 }
+
+        // Même verrou que mergeChangedFoldersItems / saveItems : sérialise
+        // l'écriture de "items" avec l'UI et les pulls CloudKit.
+        Self.storeLock.lock()
+        defer { Self.storeLock.unlock() }
+
+        var current: [SharedItem] = {
+            guard let data = d.data(forKey: "items"),
+                  let arr = try? JSONDecoder().decode([SharedItem].self, from: data) else { return [] }
+            return arr
+        }()
+
+        var seen = Set(current.map(\.id))   // dédup vs store (idempotence)
+        var added: [SharedItem] = []
+        for (_, item) in incoming where !seen.contains(item.id) {
+            seen.insert(item.id)
+            added.append(item)
+        }
+
+        if !added.isEmpty {
+            current.insert(contentsOf: added, at: 0)
+            current.sort { $0.timestamp > $1.timestamp }   // « nouveau en tête »
+            if let data = try? JSONEncoder().encode(current) {
+                d.set(data, forKey: "items")                                   // STORE D'ABORD
+                d.set(d.integer(forKey: "totalShareCount") + added.count,
+                      forKey: "totalShareCount")
+                log("drainInbox: ingested \(added.count) new item(s) from inbox")
+            }
+        }
+        // PUIS suppression de TOUS les fichiers traités (nouveaux + doublons).
+        for (u, _) in incoming { try? fm.removeItem(at: u) }
+        return added.count
+    }
+
     // MARK: - Snapshot-based diff push (debounced)
 
     /// Snapshot mémoire du dernier état local pushé, pour calculer le
@@ -730,6 +800,7 @@ actor CloudSync {
         if let v = item.aiFailed       { r["aiFailed"] = (v ? 1 : 0) as CKRecordValue }
         if let v = item.previewLocked  { r["previewLocked"] = (v ? 1 : 0) as CKRecordValue }
         if let v = item.previewZoomed  { r["previewZoomed"] = (v ? 1 : 0) as CKRecordValue }
+        if let v = item.urlBeforeUpdate { r["urlBeforeUpdate"] = v as CKRecordValue }
         r["parent"] = CKRecord.Reference(recordID: folderRecordID, action: .deleteSelf)
         // Binaires : photos / files / videos / audios — `item.url`
         // pointe sur un file:// dans SharedFiles/. On joint le fichier
@@ -774,7 +845,8 @@ actor CloudSync {
             titleFetchFailed: (r["titleFetchFailed"] as? Int).map { $0 != 0 },
             aiFailed: (r["aiFailed"] as? Int).map { $0 != 0 },
             previewLocked: (r["previewLocked"] as? Int).map { $0 != 0 },
-            previewZoomed: (r["previewZoomed"] as? Int).map { $0 != 0 }
+            previewZoomed: (r["previewZoomed"] as? Int).map { $0 != 0 },
+            urlBeforeUpdate: r["urlBeforeUpdate"] as? String
         )
         // Rapatrie les assets vers SharedFiles/ et previews/ ; remplace
         // url et previewPath par les chemins locaux résultants.
@@ -1114,7 +1186,8 @@ actor CloudSync {
             titleFetchFailed: (r["titleFetchFailed"] as? Int).map { $0 != 0 },
             aiFailed: (r["aiFailed"] as? Int).map { $0 != 0 },
             previewLocked: (r["previewLocked"] as? Int).map { $0 != 0 },
-            previewZoomed: (r["previewZoomed"] as? Int).map { $0 != 0 }
+            previewZoomed: (r["previewZoomed"] as? Int).map { $0 != 0 },
+            urlBeforeUpdate: r["urlBeforeUpdate"] as? String
         )
         if let asset = r["asset"] as? CKAsset, let src = asset.fileURL,
            let dst = importBinarySync(from: src, originalURL: url) {

@@ -977,12 +977,6 @@ class ShareViewController: UIViewController {
     }
 
     private func save(urlString: String, sourceApp: String?, pageTitle: String?, kind: String = "url", modifiedAt: Double? = nil, latitude: Double? = nil, longitude: Double? = nil, originalURL: String? = nil) {
-        guard let defaults = UserDefaults(suiteName: appGroup) else {
-            print("❌ ERROR: Cannot access UserDefaults for app group: \(appGroup)")
-            print("   Make sure App Groups capability is enabled in both targets!")
-            return
-        }
-
         let finalSource: String
         if let sourceApp = sourceApp {
             finalSource = sourceApp
@@ -992,13 +986,6 @@ class ShareViewController: UIViewController {
             finalSource = guessSourceFromURL(urlString)
         } else {
             finalSource = "Share"
-        }
-
-        // Charger la liste d'items existante (format JSON).
-        var items: [[String: Any]] = []
-        if let data = defaults.data(forKey: "items"),
-           let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-            items = arr
         }
 
         let now = Date().timeIntervalSince1970
@@ -1031,23 +1018,50 @@ class ShareViewController: UIViewController {
             newItem["originalURL"] = originalURL
         }
 
-        items.insert(newItem, at: 0)
-
-        if let data = try? JSONSerialization.data(withJSONObject: items) {
-            defaults.set(data, forKey: "items")
-            // Compteur global persistant du nombre total de partages
-            // reçus par l'app, jamais inclus dans les sauvegardes (pas
-            // d'utilité hors de l'appareil). Lu côté app principale pour
-            // déclencher la demande de note tous les 10 partages.
-            let total = defaults.integer(forKey: "totalShareCount") + 1
-            defaults.set(total, forKey: "totalShareCount")
-            defaults.synchronize()
+        // On NE modifie plus le tableau partagé `"items"` (read-modify-write
+        // cross-process avec l'app → course → items perdus / fichiers
+        // orphelins). À la place, on dépose ce partage comme un fichier
+        // individuel dans `inbox/` (écriture atomique, sans conflit). L'app
+        // (seul écrivain de `"items"`) le draine au prochain lancement /
+        // passage au premier plan / push silencieuse. Le compteur
+        // `totalShareCount` est désormais incrémenté par le drain côté app.
+        if writeToInbox(newItem) {
             WidgetCenter.shared.reloadAllTimelines()
-            print("✅ Item saved (kind=\(kind)) in folder Default — total shares: \(total)")
-            logger.info("✅ Item saved (kind=\(kind)) — total shares: \(total)")
+            print("✅ Item queued to inbox (kind=\(kind))")
+            logger.info("✅ Item queued to inbox (kind=\(kind))")
         } else {
-            print("❌ Failed to serialize items array")
-            logger.error("❌ Failed to serialize items array")
+            print("❌ Failed to queue item to inbox")
+            logger.error("❌ Failed to queue item to inbox")
+        }
+    }
+
+    /// Dépose un partage dans `inbox/<id>.json` (App Group), écriture
+    /// atomique (temp + rename → jamais de fichier partiel pour un lecteur).
+    /// Le nom de fichier = l'`id` de l'item, donc unique et servant de clé
+    /// de déduplication au drain côté app.
+    private func writeToInbox(_ item: [String: Any]) -> Bool {
+        guard let containerURL = FileManager.default
+                .containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
+            log("❌ writeToInbox: containerURL introuvable")
+            return false
+        }
+        let dir = containerURL.appendingPathComponent("inbox", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        } catch {
+            log("❌ writeToInbox: createDirectory: \(error.localizedDescription)")
+            return false
+        }
+        let id = (item["id"] as? String) ?? UUID().uuidString
+        let dest = dir.appendingPathComponent("\(id).json")
+        do {
+            let data = try JSONSerialization.data(withJSONObject: item, options: [])
+            try data.write(to: dest, options: .atomic)
+            log("    writeToInbox ✅ \(dest.lastPathComponent) (\(data.count) bytes)")
+            return true
+        } catch {
+            log("❌ writeToInbox: write: \(error.localizedDescription)")
+            return false
         }
     }
     

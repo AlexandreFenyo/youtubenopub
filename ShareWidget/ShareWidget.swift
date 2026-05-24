@@ -69,17 +69,44 @@ struct ShareTimelineProvider: TimelineProvider {
     }
 
     private func loadRecentItems() -> [WidgetItem] {
-        guard let defaults = UserDefaults(suiteName: appGroup),
-              let data = defaults.data(forKey: "items"),
-              let items = try? JSONDecoder().decode([WidgetItem].self, from: data) else {
-            return []
+        // 1. Le store partagé (ordre manuel de l'app, le plus récent en tête).
+        var storeItems: [WidgetItem] = []
+        if let defaults = UserDefaults(suiteName: appGroup),
+           let data = defaults.data(forKey: "items"),
+           let items = try? JSONDecoder().decode([WidgetItem].self, from: data) {
+            storeItems = items
         }
-        // On affiche UNIQUEMENT les items « non lus » (titre en gras
-        // bordeaux côté app, tous types confondus), dans l'ordre
-        // d'insertion (le plus récent en tête, identique au tri
-        // « Manual order » de l'app).
-        let unread = items.filter { $0.isUnread }
-        return Array(unread.prefix(30))
+        // 2. Les partages déposés par l'extension dans inbox/ mais pas encore
+        //    drainés par l'app. L'extension n'écrit plus le store directement,
+        //    donc sans cette lecture un partage frais n'apparaîtrait qu'après
+        //    l'ouverture de l'app. On les place en tête (plus récents d'abord),
+        //    comme le faisait l'ancien insert-at-0. Lecture tolérante : un
+        //    fichier illisible / disparu (drain concurrent) est ignoré — l'item
+        //    est alors déjà dans le store.
+        var inboxItems: [WidgetItem] = []
+        if let container = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroup) {
+            let dir = container.appendingPathComponent("inbox", isDirectory: true)
+            if let urls = try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: nil) {
+                for u in urls where u.pathExtension == "json" {
+                    guard let data = try? Data(contentsOf: u),
+                          let item = try? JSONDecoder().decode(WidgetItem.self, from: data) else { continue }
+                    inboxItems.append(item)
+                }
+            }
+        }
+        inboxItems.sort { $0.timestamp > $1.timestamp }
+
+        // 3. Fusion inbox (en tête) + store, dédup par id (fenêtre de
+        //    recouvrement pendant un drain), puis filtre « non lus » et cap 30.
+        var seen = Set<String>()
+        var merged: [WidgetItem] = []
+        for it in inboxItems + storeItems where !seen.contains(it.id) {
+            seen.insert(it.id)
+            merged.append(it)
+        }
+        return Array(merged.filter { $0.isUnread }.prefix(30))
     }
 
     private func stubItems() -> [WidgetItem] {

@@ -52,6 +52,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // de payload non pertinent.
         CloudSync.externalLog("AppDelegate: didReceiveRemoteNotification → triggering pull")
         Task {
+            // Draine d'abord les partages déposés dans inbox/ par
+            // l'extension (cas : partage reçu app en arrière-plan, réveillée
+            // par cette push), puis tire le delta CloudKit.
+            await CloudSync.shared.drainInbox()
             await CloudSync.shared.pullChanges()
             completionHandler(.newData)
         }

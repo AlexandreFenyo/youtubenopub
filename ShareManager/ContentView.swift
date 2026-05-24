@@ -10,6 +10,8 @@ import StoreKit
 import UniformTypeIdentifiers
 import CoreSpotlight
 import WidgetKit
+import AppleArchive
+import System
 #if canImport(Translation)
 import Translation
 #endif
@@ -113,6 +115,16 @@ struct SharedItem: Codable, Identifiable, Hashable {
     /// zoomée. Persisté en local + cloud (champ scalaire du `Item`
     /// record CloudKit).
     var previewZoomed: Bool?
+    /// URL « première valeur » d'un objet URL, capturée la PREMIÈRE fois
+    /// que l'utilisateur met à jour l'URL via le navigateur embarqué
+    /// (bouton « mise à jour »). Permet le « retour à l'origine ».
+    /// Distinct de `originalURL` (transform YouTube). Posé une seule fois
+    /// (lazy), JAMAIS remis à nil — la « première valeur » reste donc
+    /// préservée même après un retour à l'origine suivi de nouvelles mises
+    /// à jour, et on évite le bug « le point de reset réapparaît après un
+    /// pull » (effacer un champ optionnel ne se propage pas en CloudKit
+    /// `.changedKeys`). Synchronisé iCloud + sauvegardé.
+    var urlBeforeUpdate: String?
 
     var effectiveKind: String {
         if let k = kind { return k }
@@ -155,6 +167,32 @@ struct BackupBundle: Codable {
         let filename: String
         let base64: String
     }
+}
+
+/// Manifeste d'une sauvegarde **paquet** (archive AppleArchive `.aar`).
+/// Contrairement à `BackupBundle` (legacy, tout en base64 dans un JSON
+/// → explosion mémoire sur grosses bibliothèques), le manifeste ne
+/// contient AUCUN binaire : les fichiers et aperçus sont stockés bruts
+/// dans l'archive (`files/<id>`, `previews/<id>.png`). Écrit/relu en
+/// streaming → mémoire faible, scalable.
+struct BackupManifest: Codable {
+    /// 2 = format paquet (distinct du `schemaVersion: 1` legacy JSON).
+    let schemaVersion: Int
+    let exportedAt: Double
+    var settings: BackupBundle.Settings
+    var folders: [String]
+    var items: [SharedItem]
+    /// id de l'item → nom de fichier d'origine, pour restaurer le binaire
+    /// sous ce nom dans `SharedFiles/`. Le binaire lui-même est dans
+    /// l'archive à `files/<id>`.
+    var fileNames: [String: String]
+}
+
+/// Sauvegarde en attente de confirmation Restore (Replace/Merge),
+/// legacy (JSON base64) ou paquet (archive extraite sur disque).
+enum PendingRestore {
+    case legacy(BackupBundle)
+    case archive(manifest: BackupManifest, stagingDir: URL)
 }
 
 /// Identifiants de clés UserDefaults et valeurs réservées.
@@ -323,6 +361,10 @@ struct ContentView: View {
     @State private var selectedFolder: String? = StoreKeys.defaultFolder
 
     @State private var safariFullScreenURL: URL? = nil
+    /// id de l'objet URL ouvert dans le navigateur embarqué, pour les
+    /// boutons « mise à jour » / « retour à l'origine ». Renseigné en même
+    /// temps que `safariFullScreenURL` (toujours lié à un item).
+    @State private var browsingItemID: String? = nil
     @State private var previewFileURL: URL? = nil
     @State private var textToPreview: TextPreviewPayload? = nil
     @State private var showDebugLogs = false
@@ -340,6 +382,10 @@ struct ContentView: View {
     /// l'a été.
     @State private var showPurgeResult = false
     @State private var purgeResultMessage = ""
+    /// Popup de résultat de « Remove broken items » (debug) : nombre
+    /// d'objets supprimés car leur binaire local a disparu.
+    @State private var showBrokenResult = false
+    @State private var brokenResultMessage = ""
     /// URLs détectées dans le presse-papiers en attente de confirmation
     /// utilisateur. Non vide ⇔ le dialog `showPasteMultipleConfirm` est
     /// affiché (cas où le presse-papiers contient ≥ 2 URLs).
@@ -424,8 +470,11 @@ struct ContentView: View {
 
     @State private var backupShareURL: URL? = nil
     @State private var showBackupImporter: Bool = false
-    @State private var pendingImport: BackupBundle? = nil
+    @State private var pendingRestore: PendingRestore? = nil
     @State private var importErrorMessage: String? = nil
+    /// Vrai pendant la construction de l'archive de sauvegarde (export
+    /// hors thread principal) : grise le bouton et évite un double clic.
+    @State private var isBackingUp: Bool = false
     @State private var showClearConfirmation: Bool = false
 
     @State private var searchQuery: String = ""
@@ -628,7 +677,21 @@ struct ContentView: View {
         }
         .preferredColorScheme(colorScheme)
         .fullScreenCover(item: $safariFullScreenURL) { url in
-            WebContainerView(url: url)
+            let browsedItem = browsingItemID.flatMap { id in items.first(where: { $0.id == id }) }
+            WebContainerView(
+                url: url,
+                itemID: browsingItemID,
+                initialHasResetPoint: {
+                    guard let it = browsedItem, let before = it.urlBeforeUpdate else { return false }
+                    return it.url != before
+                }(),
+                onUpdate: { current in
+                    if let id = browsingItemID { updateItemURLToCurrent(id: id, current: current) }
+                },
+                onReset: {
+                    if let id = browsingItemID { resetItemURL(id: id) }
+                }
+            )
         }
         .fullScreenCover(item: $previewFileURL) { url in
             QuickLookPreview(url: url, onDismiss: { previewFileURL = nil })
@@ -704,6 +767,9 @@ struct ContentView: View {
             // pullChanges ne fait rien tant que la zone n'a pas été créée).
             Task {
                 await CloudSync.shared.refreshAccountStatus()
+                // Intègre les partages déposés par l'extension dans inbox/
+                // (l'extension n'écrit plus directement le store partagé).
+                await CloudSync.shared.drainInbox()
                 await CloudSync.shared.pullChanges()
                 // Reprend un envoi interrompu par un kill de l'app : rien
                 // d'autre ne relance un push au lancement, et le snapshot
@@ -715,13 +781,17 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             loadItems()
             Task {
+                await CloudSync.shared.drainInbox()
                 await CloudSync.shared.pullChanges()
                 await CloudSync.shared.resumePendingUploads()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             loadItems()
-            Task { await CloudSync.shared.pullChanges() }
+            Task {
+                await CloudSync.shared.drainInbox()
+                await CloudSync.shared.pullChanges()
+            }
         }
         // Poll iCloud toutes les 10 s tant que l'app est au premier
         // plan. Sans ce poll, les modifs faites sur un autre appareil
@@ -735,7 +805,13 @@ struct ContentView: View {
         // `pullChanges` se gate déjà sur `accountState == .available`
         // pour ne rien faire si iCloud n'est pas configuré.
         .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
-            Task { await CloudSync.shared.pullChanges() }
+            Task {
+                // Draine aussi ici : capte un partage arrivé pendant que
+                // l'app est au premier plan et inactive (aucun event de
+                // cycle de vie). Le widget l'affiche déjà instantanément.
+                await CloudSync.shared.drainInbox()
+                await CloudSync.shared.pullChanges()
+            }
         }
         // Sonde réseau du compteur « à récupérer » (↓) toutes les 4 s.
         // Pilotée depuis la racine (toujours montée) plutôt que depuis
@@ -788,7 +864,10 @@ struct ContentView: View {
                 case "text":
                     textToPreview = TextPreviewPayload(text: item.url, title: item.title)
                 default:
-                    if let u = URL(string: item.url) { safariFullScreenURL = u }
+                    if let u = URL(string: item.url) {
+                        browsingItemID = item.id
+                        safariFullScreenURL = u
+                    }
                 }
             }
         }
@@ -805,7 +884,7 @@ struct ContentView: View {
             BackupShareSheet(url: url)
         }
         .fileImporter(isPresented: $showBackupImporter,
-                      allowedContentTypes: [.json]) { result in
+                      allowedContentTypes: [.appleArchive, .json]) { result in
             switch result {
             case .success(let url):
                 handlePickedBackup(at: url)
@@ -816,20 +895,20 @@ struct ContentView: View {
         .alert(
             "Restore data?",
             isPresented: Binding(
-                get: { pendingImport != nil },
-                set: { if !$0 { pendingImport = nil } }
+                get: { pendingRestore != nil },
+                set: { if !$0 { cancelPendingRestore() } }
             ),
-            presenting: pendingImport
-        ) { bundle in
+            presenting: pendingRestore
+        ) { restore in
             Button("Replace", role: .destructive) {
-                applyBackup(bundle, mode: .replace)
-                pendingImport = nil
+                applyRestore(restore, mode: .replace)
+                pendingRestore = nil
             }
             Button("Merge") {
-                applyBackup(bundle, mode: .merge)
-                pendingImport = nil
+                applyRestore(restore, mode: .merge)
+                pendingRestore = nil
             }
-            Button("Cancel", role: .cancel) { pendingImport = nil }
+            Button("Cancel", role: .cancel) { cancelPendingRestore() }
         } message: { _ in
             Text("Replace deletes everything before restoring. Merge keeps your current items, folders and settings, and adds the imported ones.")
         }
@@ -865,6 +944,7 @@ struct ContentView: View {
             Text("Resync iCloud — body")
         }
         .modifier(PurgeResultAlert(isPresented: $showPurgeResult, message: purgeResultMessage))
+        .modifier(BrokenItemsResultAlert(isPresented: $showBrokenResult, message: brokenResultMessage))
         .confirmationDialog(
             "Delete local data — confirm",
             isPresented: $showDeleteLocalConfirm,
@@ -1005,6 +1085,8 @@ struct ContentView: View {
 
     @ViewBuilder
     private var sidebarList: some View {
+        // Compte + taille disque par dossier, calculés en une seule passe.
+        let folderStats = computeFolderStats()
         List(selection: $selectedFolder) {
             Section {
                 Button {
@@ -1041,11 +1123,20 @@ struct ContentView: View {
             }
             Section("Folders") {
                 ForEach(folders) { folder in
+                    let stats = folderStats[folder.name] ?? (count: 0, bytes: 0)
                     HStack {
                         Image(systemName: folderRowIcon(for: folder))
                         Text(displayName(forFolder: folder.name))
                         Spacer()
-                        Text("\(items.filter { $0.folder == folder.name }.count)")
+                        // Taille occupée par les binaires du dossier, juste
+                        // à gauche du nombre d'items (affichée seulement si
+                        // le dossier contient des fichiers).
+                        if stats.bytes > 0 {
+                            Text(formattedSize(bytes: stats.bytes))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Text("\(stats.count)")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .monospacedDigit()
@@ -1539,12 +1630,34 @@ struct ContentView: View {
                 Divider()
             }
             Button {
-                if let url = makeBackupFile() {
-                    backupShareURL = url
+                // Construction de l'archive HORS du thread principal :
+                // évite le gel de l'UI (et le crash mémoire de l'ancien
+                // format base64-en-JSON) sur les grosses bibliothèques.
+                // On capture l'état sur le main, puis on travaille en fond.
+                guard !isBackingUp else { return }
+                let snapItems = items
+                let snapFolderNames = folders.map(\.name)
+                let snapSettings = currentBackupSettings()
+                let group = appGroup
+                isBackingUp = true
+                Task.detached(priority: .userInitiated) {
+                    let url = Self.buildBackupArchive(items: snapItems,
+                                                      folderNames: snapFolderNames,
+                                                      settings: snapSettings,
+                                                      appGroup: group)
+                    await MainActor.run {
+                        isBackingUp = false
+                        if let url {
+                            backupShareURL = url
+                        } else {
+                            importErrorMessage = String(localized: "Backup failed.")
+                        }
+                    }
                 }
             } label: {
                 Label("Backup app data", systemImage: "square.and.arrow.up")
             }
+            .disabled(isBackingUp)
             Button {
                 showBackupImporter = true
             } label: {
@@ -1640,6 +1753,14 @@ struct ContentView: View {
                     purgeUnusedLocalFiles()
                 } label: {
                     Label("Purge unused local files", systemImage: "trash.slash")
+                }
+                // Supprime les objets dont le binaire local a disparu
+                // (données définitivement perdues). Nettoyage : retire
+                // l'objet + sa preview, propage la suppression à iCloud.
+                Button(role: .destructive) {
+                    removeBrokenItems()
+                } label: {
+                    Label("Remove broken items", systemImage: "trash.slash.fill")
                 }
                 // Reset complet de l'état CloudKit pour repartir
                 // from-scratch en debug : supprime la zone côté serveur
@@ -1933,6 +2054,16 @@ struct ContentView: View {
                     UIPasteboard.general.string = item.originalURL ?? item.url
                 } label: {
                     Label("Copy URL", systemImage: "doc.on.doc")
+                }
+                // Retour à l'origine : visible seulement si l'URL a été mise
+                // à jour (point de retour présent et différent de l'URL
+                // courante) via le navigateur embarqué.
+                if let before = item.urlBeforeUpdate, item.url != before {
+                    Button {
+                        resetItemURL(id: item.id)
+                    } label: {
+                        Label("Reset URL to original", systemImage: "arrow.uturn.backward.circle")
+                    }
                 }
             } else if kind == "text" {
                 Button {
@@ -2761,6 +2892,46 @@ struct ContentView: View {
         showPurgeResult = true
     }
 
+    /// Supprime les objets « cassés » : ceux dont `url` pointe vers un
+    /// fichier binaire local manquant ou vide (données définitivement
+    /// disparues). Désormais que les bugs de sync sont corrigés (verrou +
+    /// merge 3 voies, inbox cross-process) et qu'Italie a été récupérée,
+    /// ces items ne sont plus récupérables → on les nettoie. Pour chacun :
+    /// supprime le fichier vide éventuel + la preview, retire des
+    /// métadonnées, dé-index Spotlight, puis `saveItems()` (propage la
+    /// suppression à iCloud si le dossier est synchronisé). Affiche dans
+    /// un popup le nombre d'objets supprimés.
+    private func removeBrokenItems() {
+        let fm = FileManager.default
+        // « Cassé » = item à fichier local (file://) dont le binaire est
+        // manquant ou vide. Les URL/textes (pas de fichier) sont ignorés.
+        func isBroken(_ item: SharedItem) -> Bool {
+            guard let u = URL(string: item.url), u.isFileURL else { return false }
+            guard let attrs = try? fm.attributesOfItem(atPath: u.path),
+                  let n = attrs[.size] as? NSNumber else { return true }   // fichier manquant
+            return n.int64Value == 0                                       // fichier vide
+        }
+
+        let broken = items.filter(isBroken)
+        guard !broken.isEmpty else {
+            brokenResultMessage = "No broken items found. Nothing was deleted."
+            showBrokenResult = true
+            return
+        }
+        let brokenIDs = Set(broken.map(\.id))
+        for it in broken {
+            removeFileIfLocal(it.url)       // supprime le fichier vide éventuel
+            removePreviewIfAny(it)
+            CloudSync.externalLog("removeBrokenItems: deleting \(it.id) url=\"\(it.url.suffix(60))\"")
+        }
+        items.removeAll { brokenIDs.contains($0.id) }
+        Spotlight.deindex(Array(brokenIDs))
+        saveItems()   // persiste + propage la suppression à iCloud (dossiers synced)
+
+        brokenResultMessage = "Deleted \(broken.count) broken item(s) with missing data."
+        showBrokenResult = true
+    }
+
     /// Relit `folders` + `items` depuis l'App Group UserDefaults.
     /// Utilisé après une opération CloudSync qui peut avoir écrit en
     /// arrière-plan dans ces clés (resync, pull). Re-déclenche l'UI.
@@ -3464,6 +3635,37 @@ struct ContentView: View {
         saveItems()
     }
 
+    // MARK: - URL update / reset (embedded browser)
+
+    /// Remplace l'URL stockée d'un objet par l'URL `current` où
+    /// l'utilisateur a navigué dans le navigateur embarqué. Capture (une
+    /// seule fois) la « première valeur » dans `urlBeforeUpdate` pour le
+    /// retour à l'origine. Ne touche NI au titre, NI à `modifiedAt`, NI à
+    /// `previewPath` (donc aucune régénération auto de date/aperçu : même
+    /// `id` → hors condition d'auto-fetch ; champs conservés).
+    private func updateItemURLToCurrent(id: String, current: URL) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        let cur = current.absoluteString
+        guard items[idx].url != cur else { return }   // pas de navigation → no-op
+        if items[idx].urlBeforeUpdate == nil {
+            items[idx].urlBeforeUpdate = items[idx].url
+        }
+        items[idx].url = cur
+        saveItems()
+    }
+
+    /// Restaure l'URL d'un objet à sa « première valeur » (`urlBeforeUpdate`).
+    /// On NE vide PAS `urlBeforeUpdate` (idempotent ; et un clear ne se
+    /// propagerait pas via CloudKit `.changedKeys`). Titre / date / aperçu
+    /// inchangés.
+    private func resetItemURL(id: String) {
+        guard let idx = items.firstIndex(where: { $0.id == id }),
+              let original = items[idx].urlBeforeUpdate else { return }
+        guard items[idx].url != original else { return }   // déjà à l'origine
+        items[idx].url = original
+        saveItems()
+    }
+
     // MARK: - Re-share from app
 
     @ViewBuilder
@@ -3917,95 +4119,188 @@ struct ContentView: View {
 
     // MARK: - Backup / restore
 
-    private func makeBackupFile() -> URL? {
+    /// Réglages courants à inclure dans une sauvegarde (lus sur le main).
+    private func currentBackupSettings() -> BackupBundle.Settings {
         let appDefaults = UserDefaults.standard
-        let bundle = BackupBundle(
-            schemaVersion: 1,
-            exportedAt: Date().timeIntervalSince1970,
-            settings: BackupBundle.Settings(
-                colorSchemePreference: colorSchemePreference,
-                debugLogsEnabled: debugLogsEnabled,
-                describeImagesEnabled: appDefaults.bool(forKey: "describeImagesEnabled"),
-                describeImagesProvider: appDefaults.string(forKey: "describeImagesProvider") ?? "apple",
-                // SÉCURITÉ : la clé d'API n'est jamais incluse dans la
-                // sauvegarde (elle reste sur l'appareil source uniquement).
-                describeImagesAPIKey: "",
-                describeImagesModel: appDefaults.string(forKey: "describeImagesModel") ?? "",
-                simulateDateDelay: appDefaults.bool(forKey: "simulateDateDelay"),
-                selectedFolder: selectedFolder ?? StoreKeys.defaultFolder
-            ),
-            // Le format de backup garde les noms de dossier seuls
-            // (rétro-compat des sauvegardes pré-iCloud). Les drapeaux
-            // iCloud sont une décision PAR APPAREIL et ne se restaurent
-            // pas — à l'import, chaque dossier repart en local-only.
-            folders: folders.map(\.name),
-            items: items,
-            files: collectFileBlobs(),
-            previews: collectPreviewBlobs()
+        return BackupBundle.Settings(
+            colorSchemePreference: colorSchemePreference,
+            debugLogsEnabled: debugLogsEnabled,
+            describeImagesEnabled: appDefaults.bool(forKey: "describeImagesEnabled"),
+            describeImagesProvider: appDefaults.string(forKey: "describeImagesProvider") ?? "apple",
+            // SÉCURITÉ : la clé d'API n'est jamais incluse dans la sauvegarde.
+            describeImagesAPIKey: "",
+            describeImagesModel: appDefaults.string(forKey: "describeImagesModel") ?? "",
+            simulateDateDelay: appDefaults.bool(forKey: "simulateDateDelay"),
+            selectedFolder: selectedFolder ?? StoreKeys.defaultFolder
         )
+    }
+
+    enum BackupArchiveError: Error { case streamCreate, keySet }
+
+    /// Construit l'archive de sauvegarde `.aar` (AppleArchive) — appelée
+    /// HORS du thread principal. Aucune dépendance au `@State` (tout est
+    /// passé en paramètre) → sûre en contexte détaché. Mémoire faible :
+    /// les binaires sont COPIÉS bruts dans un staging puis archivés en
+    /// streaming (plus de base64-en-JSON tout-en-mémoire qui faisait
+    /// crasher l'export sur les grosses bibliothèques).
+    nonisolated static func buildBackupArchive(items: [SharedItem],
+                                               folderNames: [String],
+                                               settings: BackupBundle.Settings,
+                                               appGroup: String) -> URL? {
+        let fm = FileManager.default
+        guard let container = fm.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else { return nil }
+        let previewsContainer = container.appendingPathComponent("previews", isDirectory: true)
+
+        // Staging temporaire : manifest.json + files/<id> + previews/<id>.png
+        let staging = fm.temporaryDirectory
+            .appendingPathComponent("backup-staging-\(UUID().uuidString)", isDirectory: true)
+        let filesDir = staging.appendingPathComponent("files", isDirectory: true)
+        let previewsDir = staging.appendingPathComponent("previews", isDirectory: true)
+        defer { try? fm.removeItem(at: staging) }
+        guard (try? fm.createDirectory(at: filesDir, withIntermediateDirectories: true)) != nil,
+              (try? fm.createDirectory(at: previewsDir, withIntermediateDirectories: true)) != nil
+        else { return nil }
+
+        var fileNames: [String: String] = [:]
+        for item in items {
+            // Binaire (copie brute, pas de base64 → mémoire faible).
+            let kind = item.effectiveKind
+            if kind == "file" || kind == "photo" || kind == "video" || kind == "audio",
+               let u = URL(string: item.url), u.isFileURL, fm.fileExists(atPath: u.path) {
+                let dest = filesDir.appendingPathComponent(item.id)
+                if (try? fm.copyItem(at: u, to: dest)) != nil {
+                    fileNames[item.id] = u.lastPathComponent
+                }
+            }
+            // Aperçu (stocké sous l'id de l'item).
+            if let path = item.previewPath, !path.isEmpty {
+                let src = previewsContainer.appendingPathComponent(path)
+                if fm.fileExists(atPath: src.path) {
+                    try? fm.copyItem(at: src, to: previewsDir.appendingPathComponent("\(item.id).png"))
+                }
+            }
+        }
+
+        let manifest = BackupManifest(schemaVersion: 2,
+                                      exportedAt: Date().timeIntervalSince1970,
+                                      settings: settings,
+                                      folders: folderNames,
+                                      items: items,
+                                      fileNames: fileNames)
+        guard let mdata = try? JSONEncoder().encode(manifest),
+              (try? mdata.write(to: staging.appendingPathComponent("manifest.json"), options: .atomic)) != nil
+        else { return nil }
+
+        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd-HHmmss"
+        let archiveURL = fm.temporaryDirectory
+            .appendingPathComponent("ShareManager-backup-\(df.string(from: Date())).aar")
+        try? fm.removeItem(at: archiveURL)
         do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
-            let data = try encoder.encode(bundle)
-            let df = DateFormatter()
-            df.dateFormat = "yyyy-MM-dd-HHmmss"
-            let filename = "ShareManager-backup-\(df.string(from: Date())).json"
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-            try data.write(to: url, options: .atomic)
-            return url
+            try archiveDirectory(staging, to: archiveURL)
+            return archiveURL
         } catch {
-            print("Backup error: \(error)")
+            print("Backup archive error: \(error)")
             return nil
         }
     }
 
-    private func collectFileBlobs() -> [String: BackupBundle.FileBlob] {
-        var blobs: [String: BackupBundle.FileBlob] = [:]
-        for item in items {
-            let kind = item.effectiveKind
-            guard kind == "file" || kind == "photo" || kind == "video" || kind == "audio" else { continue }
-            guard let url = URL(string: item.url), url.isFileURL,
-                  let data = try? Data(contentsOf: url) else { continue }
-            blobs[item.id] = BackupBundle.FileBlob(
-                filename: url.lastPathComponent,
-                base64: data.base64EncodedString()
-            )
+    /// Archive le contenu d'un dossier vers un fichier `.aar` (streaming).
+    nonisolated static func archiveDirectory(_ sourceDir: URL, to archiveURL: URL) throws {
+        guard let writeStream = ArchiveByteStream.fileStream(
+                path: FilePath(archiveURL.path), mode: .writeOnly,
+                options: [.create, .truncate],
+                permissions: FilePermissions(rawValue: 0o644)) else {
+            throw BackupArchiveError.streamCreate
         }
-        return blobs
+        defer { try? writeStream.close() }
+        guard let encodeStream = ArchiveStream.encodeStream(writingTo: writeStream) else {
+            throw BackupArchiveError.streamCreate
+        }
+        defer { try? encodeStream.close() }
+        guard let keySet = ArchiveHeader.FieldKeySet("TYP,PAT,LNK,DEV,DAT,UID,GID,MOD,FLG,MTM,CTM") else {
+            throw BackupArchiveError.keySet
+        }
+        try encodeStream.writeDirectoryContents(archiveFrom: FilePath(sourceDir.path), keySet: keySet)
     }
 
-    /// Collecte chaque PNG d'aperçu déjà généré (sous-dossier
-    /// `previews/` du container App Group) en base64, indexé par item.id.
-    /// Permet à la sauvegarde d'être auto-suffisante : la restauration
-    /// n'aura plus à régénérer les aperçus (en particulier les captures
-    /// WebView des URLs, lentes et nécessitant le réseau).
-    private func collectPreviewBlobs() -> [String: String] {
-        var blobs: [String: String] = [:]
-        guard let container = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: appGroup) else { return blobs }
-        let dir = container.appendingPathComponent("previews", isDirectory: true)
-        for item in items {
-            guard let path = item.previewPath, !path.isEmpty else { continue }
-            let url = dir.appendingPathComponent(path)
-            guard let data = try? Data(contentsOf: url) else { continue }
-            blobs[item.id] = data.base64EncodedString()
+    /// Extrait une archive `.aar` vers un dossier (streaming).
+    nonisolated static func extractArchive(_ archiveURL: URL, to destDir: URL) throws {
+        try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+        guard let readStream = ArchiveByteStream.fileStream(
+                path: FilePath(archiveURL.path), mode: .readOnly, options: [],
+                permissions: FilePermissions(rawValue: 0o644)) else {
+            throw BackupArchiveError.streamCreate
         }
-        return blobs
+        defer { try? readStream.close() }
+        guard let decodeStream = ArchiveStream.decodeStream(readingFrom: readStream) else {
+            throw BackupArchiveError.streamCreate
+        }
+        defer { try? decodeStream.close() }
+        guard let extractStream = ArchiveStream.extractStream(
+                extractingTo: FilePath(destDir.path),
+                flags: [.ignoreOperationNotPermitted]) else {
+            throw BackupArchiveError.streamCreate
+        }
+        defer { try? extractStream.close() }
+        _ = try ArchiveStream.process(readingFrom: decodeStream, writingTo: extractStream)
     }
 
     private func handlePickedBackup(at url: URL) {
-        let didStart = url.startAccessingSecurityScopedResource()
-        defer { if didStart { url.stopAccessingSecurityScopedResource() } }
-        do {
-            let data = try Data(contentsOf: url)
-            let bundle = try JSONDecoder().decode(BackupBundle.self, from: data)
-            pendingImport = bundle
-        } catch {
-            importErrorMessage = error.localizedDescription
+        let isArchive = (url.pathExtension.lowercased() == "aar")
+            || ((try? url.resourceValues(forKeys: [.contentTypeKey]).contentType)?
+                    .conforms(to: .appleArchive) ?? false)
+        if isArchive {
+            // Extraction du paquet HORS thread principal (copies de
+            // fichiers, mémoire faible mais potentiellement volumineux).
+            let didStart = url.startAccessingSecurityScopedResource()
+            Task.detached(priority: .userInitiated) {
+                defer { if didStart { url.stopAccessingSecurityScopedResource() } }
+                let staging = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("restore-staging-\(UUID().uuidString)", isDirectory: true)
+                do {
+                    try Self.extractArchive(url, to: staging)
+                    let mdata = try Data(contentsOf: staging.appendingPathComponent("manifest.json"))
+                    let manifest = try JSONDecoder().decode(BackupManifest.self, from: mdata)
+                    await MainActor.run { pendingRestore = .archive(manifest: manifest, stagingDir: staging) }
+                } catch {
+                    try? FileManager.default.removeItem(at: staging)
+                    await MainActor.run { importErrorMessage = error.localizedDescription }
+                }
+            }
+        } else {
+            // Format legacy `.json` (base64) : conservé pour rétro-compat.
+            let didStart = url.startAccessingSecurityScopedResource()
+            defer { if didStart { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let data = try Data(contentsOf: url)
+                let bundle = try JSONDecoder().decode(BackupBundle.self, from: data)
+                pendingRestore = .legacy(bundle)
+            } catch {
+                importErrorMessage = error.localizedDescription
+            }
         }
     }
 
+    /// Nettoie le staging d'un import paquet annulé / consommé.
+    private func cancelPendingRestore() {
+        if case .archive(_, let staging) = pendingRestore {
+            try? FileManager.default.removeItem(at: staging)
+        }
+        pendingRestore = nil
+    }
+
     enum RestoreMode { case replace, merge }
+
+    /// Aiguille la restauration selon le type de sauvegarde.
+    private func applyRestore(_ restore: PendingRestore, mode: RestoreMode) {
+        switch restore {
+        case .legacy(let bundle):
+            applyBackup(bundle, mode: mode)
+        case .archive(let manifest, let staging):
+            applyArchiveBackup(manifest, stagingDir: staging, mode: mode)
+            try? FileManager.default.removeItem(at: staging)
+        }
+    }
 
     private func applyBackup(_ bundle: BackupBundle, mode: RestoreMode) {
         guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
@@ -4110,6 +4405,164 @@ struct ContentView: View {
         runResyncReconcile()
     }
 
+    /// Restauration depuis une sauvegarde **paquet** (`.aar` déjà
+    /// extraite dans `stagingDir`). Mêmes règles que `applyBackup` mais
+    /// les binaires/aperçus sont COPIÉS depuis le staging (mémoire faible)
+    /// au lieu d'être décodés depuis du base64.
+    private func applyArchiveBackup(_ manifest: BackupManifest, stagingDir: URL, mode: RestoreMode) {
+        guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
+            importErrorMessage = String(localized: "App Group container unavailable.")
+            return
+        }
+        let dir = containerURL.appendingPathComponent("SharedFiles", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        if mode == .replace {
+            // Wipe complet (cf. applyBackup) puis restauration.
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let previewDir = containerURL.appendingPathComponent("previews", isDirectory: true)
+            try? FileManager.default.removeItem(at: previewDir)
+            try? FileManager.default.createDirectory(at: previewDir, withIntermediateDirectories: true)
+
+            applyRestoredSettings(manifest.settings)
+
+            var newNames = manifest.folders
+            if !newNames.contains(StoreKeys.defaultFolder) {
+                newNames.insert(StoreKeys.defaultFolder, at: 0)
+            }
+            folders = newNames.enumerated().map { idx, name in
+                Folder(name: name, iCloudSynced: false, sortIndex: Double(idx))
+            }
+            saveFolders()
+
+            items = restoreItemsFromArchive(manifest.items,
+                                            fileNames: manifest.fileNames,
+                                            stagingDir: stagingDir,
+                                            into: dir,
+                                            regenerateIDs: false)
+            saveItems()
+
+            if folders.contains(where: { $0.name == manifest.settings.selectedFolder }) {
+                selectedFolder = manifest.settings.selectedFolder
+            } else {
+                selectedFolder = StoreKeys.defaultFolder
+            }
+            UserDefaults(suiteName: appGroup)?.set(selectedFolder, forKey: StoreKeys.selectedFolder)
+            runResyncReconcile()
+            return
+        }
+
+        // MERGE
+        for f in manifest.folders where !folders.contains(where: { $0.name == f }) {
+            let nextIndex = (folders.map(\.sortIndex).max() ?? 0) + 1
+            folders.append(Folder(name: f, iCloudSynced: false, sortIndex: nextIndex))
+        }
+        saveFolders()
+        let merged = restoreItemsFromArchive(manifest.items,
+                                             fileNames: manifest.fileNames,
+                                             stagingDir: stagingDir,
+                                             into: dir,
+                                             regenerateIDs: true)
+        items.append(contentsOf: merged)
+        saveItems()
+        runResyncReconcile()
+    }
+
+    /// Applique les réglages d'une sauvegarde (commun legacy/paquet, mode
+    /// replace). La clé d'API n'est réécrite que si non vide (jamais le
+    /// cas dans nos sauvegardes → on préserve celle déjà saisie).
+    private func applyRestoredSettings(_ s: BackupBundle.Settings) {
+        let appDefaults = UserDefaults.standard
+        colorSchemePreference = s.colorSchemePreference
+        debugLogsEnabled = s.debugLogsEnabled
+        appDefaults.set(s.describeImagesEnabled, forKey: "describeImagesEnabled")
+        appDefaults.set(s.describeImagesProvider, forKey: "describeImagesProvider")
+        if !s.describeImagesAPIKey.isEmpty {
+            appDefaults.set(s.describeImagesAPIKey, forKey: "describeImagesAPIKey")
+        }
+        appDefaults.set(s.describeImagesModel, forKey: "describeImagesModel")
+        appDefaults.set(s.simulateDateDelay, forKey: "simulateDateDelay")
+    }
+
+    /// Variante de `restoreItems` lisant les binaires/aperçus depuis le
+    /// staging d'une archive (`files/<id>`, `previews/<id>.png`) par COPIE
+    /// (mémoire faible) au lieu de base64.
+    private func restoreItemsFromArchive(_ source: [SharedItem],
+                                         fileNames: [String: String],
+                                         stagingDir: URL,
+                                         into dir: URL,
+                                         regenerateIDs: Bool) -> [SharedItem] {
+        var result = source
+        let now = Int(Date().timeIntervalSince1970 * 1000)
+        let fm = FileManager.default
+        let filesSrc = stagingDir.appendingPathComponent("files", isDirectory: true)
+        let previewsSrc = stagingDir.appendingPathComponent("previews", isDirectory: true)
+        let previewDir: URL? = {
+            guard let container = fm.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else { return nil }
+            let d = container.appendingPathComponent("previews", isDirectory: true)
+            try? fm.createDirectory(at: d, withIntermediateDirectories: true)
+            return d
+        }()
+        for i in 0..<result.count {
+            let originalID = result[i].id   // id de référence dans l'archive
+            if regenerateIDs {
+                let item = result[i]
+                // `id` et `timestamp` sont `let` → reconstruction complète.
+                result[i] = SharedItem(
+                    id: UUID().uuidString,
+                    url: item.url,
+                    title: item.title,
+                    sourceApp: item.sourceApp,
+                    folder: item.folder,
+                    timestamp: item.timestamp,
+                    kind: item.kind,
+                    modifiedAt: item.modifiedAt,
+                    latitude: item.latitude,
+                    longitude: item.longitude,
+                    placeName: item.placeName,
+                    aiDescribed: item.aiDescribed,
+                    lastSeenModifiedAt: item.lastSeenModifiedAt,
+                    originalURL: item.originalURL,
+                    note: item.note,
+                    ocrDone: item.ocrDone,
+                    previewPath: nil,
+                    aiCallsCount: item.aiCallsCount,
+                    translationDone: item.translationDone,
+                    ocrFailed: item.ocrFailed,
+                    titleFetchFailed: item.titleFetchFailed,
+                    aiFailed: item.aiFailed,
+                    previewLocked: item.previewLocked,
+                    previewZoomed: item.previewZoomed,
+                    urlBeforeUpdate: item.urlBeforeUpdate
+                )
+            }
+            // Aperçu (stocké sous l'id d'origine).
+            let pSrc = previewsSrc.appendingPathComponent("\(originalID).png")
+            if fm.fileExists(atPath: pSrc.path), let pdir = previewDir {
+                let pname = "\(result[i].id).png"
+                let pdest = pdir.appendingPathComponent(pname)
+                try? fm.removeItem(at: pdest)
+                if (try? fm.copyItem(at: pSrc, to: pdest)) != nil {
+                    result[i].previewPath = pname
+                }
+            }
+            // Binaire (stocké sous l'id d'origine ; nom de destination
+            // dérivé du nom d'origine pour rester cohérent avec SharedFiles/).
+            let bSrc = filesSrc.appendingPathComponent(originalID)
+            if fm.fileExists(atPath: bSrc.path) {
+                let filename = fileNames[originalID] ?? originalID
+                let safeName = "\(now)-\(i)_\(filename)"
+                let dest = dir.appendingPathComponent(safeName)
+                try? fm.removeItem(at: dest)
+                if (try? fm.copyItem(at: bSrc, to: dest)) != nil {
+                    result[i].url = dest.absoluteString
+                }
+            }
+        }
+        return result
+    }
+
     /// Écrit les binaires de `files` dans `dir` et retourne la liste d'items
     /// avec leur `url` pointant sur le nouveau chemin App Group. Si
     /// `regenerateIDs` est vrai, chaque item reçoit un nouvel UUID (pour
@@ -4158,7 +4611,8 @@ struct ContentView: View {
                     titleFetchFailed: item.titleFetchFailed,
                     aiFailed: item.aiFailed,
                     previewLocked: item.previewLocked,
-                    previewZoomed: item.previewZoomed
+                    previewZoomed: item.previewZoomed,
+                    urlBeforeUpdate: item.urlBeforeUpdate
                 )
                 result[i] = copy
             }
@@ -4237,7 +4691,10 @@ struct ContentView: View {
         case "text":
             textToPreview = TextPreviewPayload(text: item.url, title: item.title)
         default:
-            if let link = linkURL { safariFullScreenURL = link }
+            if let link = linkURL {
+                browsingItemID = item.id
+                safariFullScreenURL = link
+            }
         }
     }
 
@@ -4694,6 +5151,7 @@ struct ContentView: View {
     @ViewBuilder
     private func dateRow(for item: SharedItem) -> some View {
         let fetching = fetchingDateIDs.contains(item.id)
+        let sizeStr = formattedItemSize(item)
         HStack(spacing: 4) {
             Image(systemName: "clock")
                 .font(.caption2)
@@ -4716,9 +5174,76 @@ struct ContentView: View {
                     .font(.caption2)
                     .blinking()
             }
+            // Taille de l'objet (objets avec fichier local : photo / vidéo /
+            // audio / fichier). Unité la plus logique (Go/Mo/Ko, décimal
+            // comme le Finder) avec un chiffre après la virgule.
+            if let sizeStr {
+                Text("· \(sizeStr)")
+                    .font(.caption2)
+            }
         }
         .foregroundColor(.secondary)
     }
+
+    /// Taille du fichier binaire local d'un item, formatée dans l'unité
+    /// la plus logique avec un chiffre après la virgule (Go au-delà de
+    /// 1 Go, Mo au-delà de 1 Mo, sinon Ko). Base décimale (1000),
+    /// cohérente avec le Finder/iOS. Retourne nil pour les items sans
+    /// fichier local (URL, texte).
+    private func formattedItemSize(_ item: SharedItem) -> String? {
+        guard let u = URL(string: item.url), u.isFileURL,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: u.path),
+              let n = attrs[.size] as? NSNumber else { return nil }
+        return formattedSize(bytes: n.int64Value)
+    }
+
+    /// Formate un nombre d'octets dans l'unité la plus logique (Go au-delà
+    /// de 1 Go, Mo au-delà de 1 Mo, sinon Ko), base décimale (1000)
+    /// cohérente avec le Finder/iOS, un chiffre après la virgule,
+    /// séparateur et symbole d'unité localisés.
+    private func formattedSize(bytes: Int64) -> String {
+        let b = Double(bytes)
+        let kb = 1000.0, mb = 1_000_000.0, gb = 1_000_000_000.0
+        let measurement: Measurement<UnitInformationStorage>
+        if b >= gb {
+            measurement = Measurement(value: b / gb, unit: .gigabytes)
+        } else if b >= mb {
+            measurement = Measurement(value: b / mb, unit: .megabytes)
+        } else {
+            measurement = Measurement(value: b / kb, unit: .kilobytes)
+        }
+        return Self.itemSizeFormatter.string(from: measurement)
+    }
+
+    /// Calcule en UNE passe, pour chaque dossier, le nombre d'items et la
+    /// taille disque totale de leurs binaires locaux. Évite le coût
+    /// O(dossiers × items) d'un calcul par-dossier au rendu de la sidebar.
+    private func computeFolderStats() -> [String: (count: Int, bytes: Int64)] {
+        var map: [String: (count: Int, bytes: Int64)] = [:]
+        let fm = FileManager.default
+        for it in items {
+            var entry = map[it.folder] ?? (count: 0, bytes: 0)
+            entry.count += 1
+            if let u = URL(string: it.url), u.isFileURL,
+               let attrs = try? fm.attributesOfItem(atPath: u.path),
+               let n = attrs[.size] as? NSNumber {
+                entry.bytes += n.int64Value
+            }
+            map[it.folder] = entry
+        }
+        return map
+    }
+
+    /// Formateur de taille : unité fournie telle quelle (pas de
+    /// re-conversion automatique), exactement un chiffre après la
+    /// virgule, séparateur décimal et symbole d'unité localisés.
+    static let itemSizeFormatter: MeasurementFormatter = {
+        let mf = MeasurementFormatter()
+        mf.unitOptions = .providedUnit
+        mf.numberFormatter.minimumFractionDigits = 1
+        mf.numberFormatter.maximumFractionDigits = 1
+        return mf
+    }()
 
     static let dateFormatter: DateFormatter = {
         let df = DateFormatter()
@@ -5268,9 +5793,36 @@ class WebViewStore: ObservableObject {
 
 struct WebContainerView: View {
     let url: URL
+    /// id de l'objet URL affiché (nil si le navigateur est ouvert hors
+    /// d'un objet) → conditionne l'affichage des boutons update/reset.
+    var itemID: String? = nil
+    /// L'objet a-t-il déjà un point de retour différent de l'URL courante
+    /// au moment de l'ouverture ?
+    var initialHasResetPoint: Bool = false
+    /// Met à jour l'URL de l'objet vers l'URL courante du WebView.
+    var onUpdate: ((URL) -> Void)? = nil
+    /// Restaure l'URL d'origine de l'objet.
+    var onReset: (() -> Void)? = nil
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @StateObject private var store = WebViewStore()
+    /// Reflète localement la disponibilité du retour à l'origine (évite
+    /// d'observer le store d'items depuis ce sous-arbre présenté).
+    @State private var hasResetPoint: Bool
+
+    init(url: URL,
+         itemID: String? = nil,
+         initialHasResetPoint: Bool = false,
+         onUpdate: ((URL) -> Void)? = nil,
+         onReset: (() -> Void)? = nil) {
+        self.url = url
+        self.itemID = itemID
+        self.initialHasResetPoint = initialHasResetPoint
+        self.onUpdate = onUpdate
+        self.onReset = onReset
+        _hasResetPoint = State(initialValue: initialHasResetPoint)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -5281,6 +5833,32 @@ struct WebContainerView: View {
                         .foregroundColor(.primary)
                 }
                 Spacer()
+                // Boutons spécifiques à un objet URL (à gauche de Safari) :
+                // [retour à l'origine] [mise à jour].
+                if itemID != nil {
+                    if hasResetPoint {
+                        Button {
+                            onReset?()
+                            hasResetPoint = false
+                        } label: {
+                            Image(systemName: "arrow.uturn.backward.circle")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundColor(.primary)
+                        }
+                        .accessibilityLabel(Text("Reset URL to original"))
+                    }
+                    Button {
+                        if let current = store.webView?.url {
+                            onUpdate?(current)
+                            hasResetPoint = true
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.circle")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.primary)
+                    }
+                    .accessibilityLabel(Text("Update saved URL to current page"))
+                }
                 Button {
                     openURL(url)
                     dismiss()
@@ -6831,6 +7409,20 @@ private struct PurgeResultAlert: ViewModifier {
     let message: String
     func body(content: Content) -> some View {
         content.alert("Purge unused local files", isPresented: $isPresented) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(message)
+        }
+    }
+}
+
+/// Alerte de résultat de « Remove broken items » (même motif que
+/// `PurgeResultAlert`).
+private struct BrokenItemsResultAlert: ViewModifier {
+    @Binding var isPresented: Bool
+    let message: String
+    func body(content: Content) -> some View {
+        content.alert("Remove broken items", isPresented: $isPresented) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(message)
