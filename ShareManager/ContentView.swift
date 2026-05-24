@@ -686,10 +686,12 @@ struct ContentView: View {
                     return it.url != before
                 }(),
                 onUpdate: { current in
-                    if let id = browsingItemID { updateItemURLToCurrent(id: id, current: current) }
+                    if let id = browsingItemID { return updateItemURLToCurrent(id: id, current: current) }
+                    return false
                 },
                 onReset: {
-                    if let id = browsingItemID { resetItemURL(id: id) }
+                    if let id = browsingItemID { return resetItemURL(id: id) }
+                    return nil
                 }
             )
         }
@@ -3641,29 +3643,52 @@ struct ContentView: View {
     /// l'utilisateur a navigué dans le navigateur embarqué. Capture (une
     /// seule fois) la « première valeur » dans `urlBeforeUpdate` pour le
     /// retour à l'origine. Ne touche NI au titre, NI à `modifiedAt`, NI à
-    /// `previewPath` (donc aucune régénération auto de date/aperçu : même
-    /// `id` → hors condition d'auto-fetch ; champs conservés).
-    private func updateItemURLToCurrent(id: String, current: URL) {
-        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+    /// `previewPath`.
+    ///
+    /// Règles demandées :
+    ///   - rien à faire si `current` == URL déjà sauvegardée (`item.url`) ;
+    ///   - si `current` == URL initiale, on repointe l'objet sur l'initiale
+    ///     SANS créer d'override (donc pas d'icône « retour à l'origine »).
+    ///
+    /// Retourne `true` si, après l'opération, un point de retour est actif
+    /// (URL courante de l'objet ≠ initiale) → pilote l'affichage du bouton
+    /// retour dans la vue web.
+    @discardableResult
+    private func updateItemURLToCurrent(id: String, current: URL) -> Bool {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return false }
         let cur = current.absoluteString
-        guard items[idx].url != cur else { return }   // pas de navigation → no-op
-        if items[idx].urlBeforeUpdate == nil {
-            items[idx].urlBeforeUpdate = items[idx].url
+        let initial = items[idx].urlBeforeUpdate ?? items[idx].url
+        if cur != items[idx].url {                 // sinon : déjà sauvegardée → rien à faire
+            if cur == initial {
+                // Retour à l'initiale : l'objet repointe dessus, pas
+                // d'override (l'icône retour se masquera car url == initiale).
+                items[idx].url = cur
+            } else {
+                if items[idx].urlBeforeUpdate == nil {
+                    items[idx].urlBeforeUpdate = items[idx].url   // capture 1re valeur
+                }
+                items[idx].url = cur
+            }
+            saveItems()
         }
-        items[idx].url = cur
-        saveItems()
+        let it = items[idx]
+        if let before = it.urlBeforeUpdate { return it.url != before }
+        return false
     }
 
     /// Restaure l'URL d'un objet à sa « première valeur » (`urlBeforeUpdate`).
     /// On NE vide PAS `urlBeforeUpdate` (idempotent ; et un clear ne se
     /// propagerait pas via CloudKit `.changedKeys`). Titre / date / aperçu
-    /// inchangés.
-    private func resetItemURL(id: String) {
+    /// inchangés. Retourne l'URL initiale (pour recharger le WebView).
+    @discardableResult
+    private func resetItemURL(id: String) -> URL? {
         guard let idx = items.firstIndex(where: { $0.id == id }),
-              let original = items[idx].urlBeforeUpdate else { return }
-        guard items[idx].url != original else { return }   // déjà à l'origine
-        items[idx].url = original
-        saveItems()
+              let original = items[idx].urlBeforeUpdate else { return nil }
+        if items[idx].url != original {
+            items[idx].url = original
+            saveItems()
+        }
+        return URL(string: original)
     }
 
     // MARK: - Re-share from app
@@ -5789,6 +5814,7 @@ struct ContentView: View {
 class WebViewStore: ObservableObject {
     var webView: WKWebView?
     func reload() { webView?.reload() }
+    func load(_ url: URL) { webView?.load(URLRequest(url: url)) }
 }
 
 struct WebContainerView: View {
@@ -5800,9 +5826,12 @@ struct WebContainerView: View {
     /// au moment de l'ouverture ?
     var initialHasResetPoint: Bool = false
     /// Met à jour l'URL de l'objet vers l'URL courante du WebView.
-    var onUpdate: ((URL) -> Void)? = nil
-    /// Restaure l'URL d'origine de l'objet.
-    var onReset: (() -> Void)? = nil
+    /// Retourne `true` si un point de retour est désormais actif (pilote
+    /// l'affichage du bouton « retour à l'origine »).
+    var onUpdate: ((URL) -> Bool)? = nil
+    /// Restaure l'URL d'origine de l'objet. Retourne l'URL initiale à
+    /// recharger dans le WebView (nil si rien à restaurer).
+    var onReset: (() -> URL?)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -5814,8 +5843,8 @@ struct WebContainerView: View {
     init(url: URL,
          itemID: String? = nil,
          initialHasResetPoint: Bool = false,
-         onUpdate: ((URL) -> Void)? = nil,
-         onReset: (() -> Void)? = nil) {
+         onUpdate: ((URL) -> Bool)? = nil,
+         onReset: (() -> URL?)? = nil) {
         self.url = url
         self.itemID = itemID
         self.initialHasResetPoint = initialHasResetPoint
@@ -5838,8 +5867,12 @@ struct WebContainerView: View {
                 if itemID != nil {
                     if hasResetPoint {
                         Button {
-                            onReset?()
-                            hasResetPoint = false
+                            // Restaure l'objet ET recharge l'URL initiale
+                            // dans la vue web.
+                            if let initial = onReset?() {
+                                store.load(initial)
+                                hasResetPoint = false
+                            }
                         } label: {
                             Image(systemName: "arrow.uturn.backward.circle")
                                 .font(.system(size: 17, weight: .semibold))
@@ -5849,8 +5882,9 @@ struct WebContainerView: View {
                     }
                     Button {
                         if let current = store.webView?.url {
-                            onUpdate?(current)
-                            hasResetPoint = true
+                            // L'icône retour ne s'affiche que si un point de
+                            // retour est réellement actif après l'opération.
+                            hasResetPoint = onUpdate?(current) ?? hasResetPoint
                         }
                     } label: {
                         Image(systemName: "arrow.up.circle")
